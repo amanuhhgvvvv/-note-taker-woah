@@ -1,6 +1,5 @@
 import streamlit as st
 import pandas as pd
-from io import BytesIO
 from pathlib import Path
 
 # ----------------------------
@@ -57,27 +56,42 @@ if st.button("Simpan data"):
     all_sheets = read_all_sheets(EXCEL_PATH)
     df_loc = all_sheets.get(lokasi, pd.DataFrame(columns=COLUMNS))
 
+    # tambahkan data harian baru
     new_row = {
         "tanggal": tanggal,
         "pH": float(ph),
         "debit": float(debit),
         "ph_rata_rata_bulan": None
     }
-
     df_loc = pd.concat([df_loc, pd.DataFrame([new_row])], ignore_index=True)
 
     # pastikan tanggal datetime
     df_loc["tanggal"] = pd.to_datetime(df_loc["tanggal"], errors="coerce")
-    df_loc["bulan"] = df_loc["tanggal"].dt.month
-    df_loc["tahun"] = df_loc["tanggal"].dt.year
 
-    # hitung rata-rata pH bulanan
-    df_loc["pH"] = pd.to_numeric(df_loc["pH"], errors="coerce")
-    df_loc["ph_rata_rata_bulan"] = (
-        df_loc.groupby(["tahun", "bulan"])["pH"]
-        .transform("mean")
+    # ---- Hitung rata-rata bulanan (hanya sekali per bulan) ----
+    df_data = df_loc[df_loc["ph_rata_rata_bulan"].isna()].copy()  # hanya data harian
+    df_data["bulan"] = df_data["tanggal"].dt.month
+    df_data["tahun"] = df_data["tanggal"].dt.year
+
+    avg_df = (
+        df_data.groupby(["tahun", "bulan"], as_index=False)["pH"]
+        .mean()
         .round(3)
+        .rename(columns={"pH": "ph_rata_rata_bulan"})
     )
+
+    # buang baris rata-rata lama (supaya tidak dobel)
+    df_loc = df_data[COLUMNS].copy()
+
+    # tambahkan baris rata-rata tiap bulan
+    for _, row in avg_df.iterrows():
+        rata_row = {
+            "tanggal": f"Rata-rata {row['bulan']}/{row['tahun']}",
+            "pH": None,
+            "debit": None,
+            "ph_rata_rata_bulan": row["ph_rata_rata_bulan"]
+        }
+        df_loc = pd.concat([df_loc, pd.DataFrame([rata_row])], ignore_index=True)
 
     # simpan lagi ke dict & file
     all_sheets[lokasi] = df_loc
@@ -96,7 +110,7 @@ try:
     if df_preview.empty:
         st.info("Belum ada data untuk lokasi ini.")
     else:
-        st.dataframe(df_preview.sort_values("tanggal").reset_index(drop=True))
+        st.dataframe(df_preview.reset_index(drop=True))
 except Exception as e:
     st.error(f"Gagal membaca file Excel: {e}")
 
