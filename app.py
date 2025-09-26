@@ -1,4 +1,3 @@
-# app.py
 import streamlit as st
 import pandas as pd
 from io import BytesIO
@@ -19,7 +18,6 @@ st.title("📊 Pencatatan pH dan Debit Air")
 # Inisialisasi file Excel bila belum ada
 # ----------------------------
 def initialize_excel(path: Path):
-    # jika file belum ada, buat file dengan sheet kosong untuk setiap lokasi
     if not path.exists():
         writer = pd.ExcelWriter(path, engine="openpyxl")
         for sheet in SHEET_NAMES:
@@ -30,16 +28,14 @@ def initialize_excel(path: Path):
 initialize_excel(EXCEL_PATH)
 
 # ----------------------------
-# Utility: baca sheet, simpan semua sheet
+# Utility: baca & simpan sheet
 # ----------------------------
 def read_all_sheets(path: Path):
-    # membaca semua sheet ke dict {sheetname: DataFrame}
     return pd.read_excel(path, sheet_name=None, engine="openpyxl")
 
 def save_all_sheets(dfs: dict, path: Path):
     with pd.ExcelWriter(path, engine="openpyxl") as writer:
         for sheet, df in dfs.items():
-            # pastikan kolom urut sesuai COLUMNS
             df = df.reindex(columns=COLUMNS)
             df.to_excel(writer, sheet_name=sheet, index=False)
 
@@ -48,9 +44,9 @@ def save_all_sheets(dfs: dict, path: Path):
 # ----------------------------
 st.markdown("Isi data pengukuran di bawah ini:")
 
-# tanggal kecil: buat 3 kolom kecil
-# Input tanggal dengan 1 kotak date picker
-tanggal = st.date_input("Tanggal pengukuran:", pd.Timestamp.now()) 
+# Input tanggal (langsung 1 kotak date picker)
+tanggal = st.date_input("Tanggal pengukuran:", pd.Timestamp.now())
+
 lokasi = st.selectbox("Lokasi pengukuran:", SHEET_NAMES)
 
 ph = st.number_input("pH (mis. 7.2)", min_value=0.0, max_value=14.0, value=7.0, format="%.3f")
@@ -58,46 +54,39 @@ debit = st.number_input("Debit (mis. L/detik)", min_value=0.0, value=0.0, format
 
 # tombol submit
 if st.button("Simpan data"):
-    # load semua sheet
     all_sheets = read_all_sheets(EXCEL_PATH)
-
-    # ambil df sheet sesuai lokasi
     df_loc = all_sheets.get(lokasi, pd.DataFrame(columns=COLUMNS))
 
-    # buat row baru
     new_row = {
-        new_row = {
-    "tanggal": tanggal,  
-    "pH": float(ph),
-    "debit": float(debit),
-    "ph_rata_rata_bulan": None
+        "tanggal": tanggal,
+        "pH": float(ph),
+        "debit": float(debit),
+        "ph_rata_rata_bulan": None
     }
 
-   # append
-df_loc = pd.concat([df_loc, pd.DataFrame([new_row])], ignore_index=True)
+    df_loc = pd.concat([df_loc, pd.DataFrame([new_row])], ignore_index=True)
 
-# pastikan tanggal dalam format datetime
-df_loc["tanggal"] = pd.to_datetime(df_loc["tanggal"], errors="coerce")  
-df_loc["bulan"] = df_loc["tanggal"].dt.month                            
-df_loc["tahun"] = df_loc["tanggal"].dt.year                             
+    # pastikan tanggal datetime
+    df_loc["tanggal"] = pd.to_datetime(df_loc["tanggal"], errors="coerce")
+    df_loc["bulan"] = df_loc["tanggal"].dt.month
+    df_loc["tahun"] = df_loc["tanggal"].dt.year
 
-# recompute rata2 pH per bulan untuk sheet ini
-df_loc["pH"] = pd.to_numeric(df_loc["pH"], errors="coerce")
+    # hitung rata-rata pH bulanan
+    df_loc["pH"] = pd.to_numeric(df_loc["pH"], errors="coerce")
+    df_loc["ph_rata_rata_bulan"] = (
+        df_loc.groupby(["tahun", "bulan"])["pH"]
+        .transform("mean")
+        .round(3)
+    )
 
-# hitung rata-rata pH per tahun+bulan
-df_loc["ph_rata_rata_bulan"] = (
-    df_loc.groupby(["tahun", "bulan"])["pH"]
-    .transform("mean")
-    .round(3)
-)
-    # update dict dan simpan semua sheet kembali
+    # simpan lagi ke dict & file
     all_sheets[lokasi] = df_loc
     save_all_sheets(all_sheets, EXCEL_PATH)
 
-    st.success(f"Data tersimpan di sheet '{lokasi}' — tanggal {tanggal}/{bulan}/{tahun}")
+    st.success(f"Data tersimpan di sheet '{lokasi}' — tanggal {tanggal}")
 
 # ----------------------------
-# Tampilkan preview data untuk lokasi dipilih
+# Preview data
 # ----------------------------
 st.markdown("---")
 st.subheader("Preview data lokasi")
@@ -107,7 +96,7 @@ try:
     if df_preview.empty:
         st.info("Belum ada data untuk lokasi ini.")
     else:
-        st.dataframe(df_preview.sort_values(["tahun","bulan","tanggal"]).reset_index(drop=True))
+        st.dataframe(df_preview.sort_values("tanggal").reset_index(drop=True))
 except Exception as e:
     st.error(f"Gagal membaca file Excel: {e}")
 
@@ -126,7 +115,4 @@ st.download_button(
     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 )
 
-
 st.info("File disimpan di server sebagai ph_debit_data.xlsx. Data akan bertahan kecuali file dihapus dari server.")
-
-
