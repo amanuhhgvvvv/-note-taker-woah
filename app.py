@@ -83,22 +83,17 @@ if st.button("Simpan data"):
     # append
     df_loc = pd.concat([df_loc, pd.DataFrame([new_row])], ignore_index=True)
 
-# pastikan kolom numeric
+# recompute rata2 pH per bulan untuk sheet ini
+    # pastikan kolom numeric
     df_loc["pH"] = pd.to_numeric(df_loc["pH"], errors="coerce")
     df_loc["bulan"] = pd.to_numeric(df_loc["bulan"], errors="coerce").astype(int)
     df_loc["tahun"] = pd.to_numeric(df_loc["tahun"], errors="coerce").astype(int)
 
-    # buat dataframe ringkasan rata-rata pH per bulan
-    df_summary = (
-        df_loc.groupby(["tahun", "bulan"], as_index=False)
-        .agg(ph_rata_rata_bulan=("pH", "mean"))
-        .round(3)
-    )
+    # hitung rata-rata pH per tahun+bulan
+    df_loc["ph_rata_rata_bulan"] = df_loc.groupby(["tahun", "bulan"])["pH"].transform("mean").round(3)
 
-    # update dict: simpan hasil ringkasan ke sheet lokasi
-    all_sheets[lokasi] = df_summary
-
-    # simpan semua sheet kembali
+    # update dict dan simpan semua sheet kembali
+    all_sheets[lokasi] = df_loc
     save_all_sheets(all_sheets, EXCEL_PATH)
 
     st.success(f"Data tersimpan di sheet '{lokasi}' — tanggal {tanggal}/{bulan}/{tahun}")
@@ -135,3 +130,4 @@ st.download_button(
 
 
 st.info("File disimpan di server sebagai ph_debit_data.xlsx. Data akan bertahan kecuali file dihapus dari server.")
+
