@@ -6,23 +6,43 @@ from pathlib import Path
 # Konfigurasi / Nama file
 # ----------------------------
 EXCEL_PATH = Path("ph_debit_data.xlsx")
-SHEET_NAMES = ["Power Plant", "Plant Garage", "Drain A", "Drain B", "Drain C"]
+SHEET_NAMES = [
+    "Power Plant",
+    "Plant Garage",
+    "Drain A",
+    "Drain B",
+    "Drain C",
+    "WTP",
+    "Coal Yard",
+    "Domestik",
+    "Limestone",
+    "Clay Laterite",
+    "Silika",
+    "Kondensor PLTU"
+]
 COLUMNS = ["tanggal", "pH", "debit", "ph_rata_rata_bulan"]
 
 st.set_page_config(page_title="Pencatatan pH & Debit Air", layout="centered")
-
 st.title("📊 Pencatatan pH dan Debit Air")
 
 # ----------------------------
-# Inisialisasi file Excel bila belum ada
+# Inisialisasi file Excel
 # ----------------------------
 def initialize_excel(path: Path):
     if not path.exists():
-        writer = pd.ExcelWriter(path, engine="openpyxl")
-        for sheet in SHEET_NAMES:
-            df = pd.DataFrame(columns=COLUMNS)
-            df.to_excel(writer, sheet_name=sheet, index=False)
-        writer.close()
+        # jika file belum ada, buat semua sheet baru
+        with pd.ExcelWriter(path, engine="openpyxl") as writer:
+            for sheet in SHEET_NAMES:
+                df = pd.DataFrame(columns=COLUMNS)
+                df.to_excel(writer, sheet_name=sheet, index=False)
+    else:
+        # jika file sudah ada, pastikan sheet baru ikut ditambahkan
+        all_sheets = pd.read_excel(path, sheet_name=None, engine="openpyxl")
+        with pd.ExcelWriter(path, engine="openpyxl", mode="a", if_sheet_exists="overlay") as writer:
+            for sheet in SHEET_NAMES:
+                if sheet not in all_sheets:
+                    df = pd.DataFrame(columns=COLUMNS)
+                    df.to_excel(writer, sheet_name=sheet, index=False)
 
 initialize_excel(EXCEL_PATH)
 
@@ -43,15 +63,12 @@ def save_all_sheets(dfs: dict, path: Path):
 # ----------------------------
 st.markdown("Isi data pengukuran di bawah ini:")
 
-# Input tanggal (langsung 1 kotak date picker)
 tanggal = st.date_input("Tanggal pengukuran:", pd.Timestamp.now())
-
 lokasi = st.selectbox("Lokasi pengukuran:", SHEET_NAMES)
 
 ph = st.number_input("pH (mis. 7.2)", min_value=0.0, max_value=14.0, value=7.0, format="%.3f")
 debit = st.number_input("Debit (mis. L/detik)", min_value=0.0, value=0.0, format="%.3f")
 
-# tombol submit
 if st.button("Simpan data"):
     all_sheets = read_all_sheets(EXCEL_PATH)
     df_loc = all_sheets.get(lokasi, pd.DataFrame(columns=COLUMNS))
@@ -68,7 +85,7 @@ if st.button("Simpan data"):
     # pastikan tanggal datetime
     df_loc["tanggal"] = pd.to_datetime(df_loc["tanggal"], errors="coerce")
 
-    # ---- Hitung rata-rata bulanan (hanya sekali per bulan) ----
+    # ---- Hitung rata-rata bulanan ----
     df_data = df_loc[df_loc["ph_rata_rata_bulan"].isna()].copy()  # hanya data harian
     df_data["bulan"] = df_data["tanggal"].dt.month
     df_data["tahun"] = df_data["tanggal"].dt.year
