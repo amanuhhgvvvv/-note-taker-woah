@@ -23,7 +23,7 @@ SHEET_NAMES = [
     "Kondensor PLTU"
 ]
 COLUMNS = ["tanggal", "pH", "debit", "ph_rata_rata_bulan"]
-AVERAGE_SHEET_NAME = "Rata-rata Bulanan" # <<< NAMA SHEET BARU
+AVERAGE_SHEET_NAME = "Rata-rata Bulanan"
 
 st.set_page_config(page_title="Pencatatan pH & Debit Air", layout="centered")
 st.title("📊 Pencatatan pH dan Debit Air")
@@ -39,49 +39,49 @@ def initialize_excel(path: Path, columns, sheets):
                 pd.DataFrame(columns=columns).to_excel(writer, sheet_name=sheet, index=False)
     else:
         try:
-            # Baca semua sheet yang ada
             all_sheets = pd.read_excel(path, sheet_name=None, engine="openpyxl")
             sheets_to_add = [sheet for sheet in sheets if sheet not in all_sheets]
             
-            # Jika ada sheet baru, tambahkan
             if sheets_to_add:
                 with pd.ExcelWriter(path, engine="openpyxl", mode="a", if_sheet_exists="overlay") as writer:
                     for sheet in sheets_to_add:
                         pd.DataFrame(columns=columns).to_excel(writer, sheet_name=sheet, index=False)
-
-            # Hapus sheet 'Rata-rata Bulanan' jika ada
-            if AVERAGE_SHEET_NAME in all_sheets:
-                 # Hapus sheet 'Rata-rata Bulanan'
-                 pass # Dibiarkan kosong, nanti akan ditimpa saat save
         except Exception:
             path.unlink(missing_ok=True)
             initialize_excel(path, columns, sheets)
 
+# --- FUNGSI UTAMA YANG DIPERBAIKI (Baca Semua Sheet Data) ---
 def read_all_sheets(path: Path):
     if not path.exists():
         return {}
-    # Baca semua sheet kecuali sheet laporan rata-rata
+    
+    # Baca semua sheet di file Excel
     all_sheets = pd.read_excel(path, sheet_name=None, engine="openpyxl")
-    if AVERAGE_SHEET_NAME in all_sheets:
-        del all_sheets[AVERAGE_SHEET_NAME]
-    return all_sheets
+    
+    # Filter hanya sheet yang ada di SHEET_NAMES (sheet data)
+    data_sheets = {name: df for name, df in all_sheets.items() if name in SHEET_NAMES}
+    
+    return data_sheets
+# -------------------------------------------------------------
 
+# --- FUNGSI UTAMA YANG DIPERBAIKI (Simpan Semua Sheet) ---
 def save_all_sheets(dfs: dict, path: Path, columns):
-    # Baca dulu sheet yang sudah ada (termasuk Laporan Rata-rata jika ada)
     try:
+        # Baca sheet yang sudah ada (termasuk sheet laporan rata-rata)
         existing_sheets = pd.read_excel(path, sheet_name=None, engine="openpyxl")
     except Exception:
         existing_sheets = {}
 
-    # Update sheet data
+    # Update sheet data yang baru diubah
     existing_sheets.update(dfs)
 
-    # Simpan semua sheet (data dan laporan) kembali ke file
+    # Simpan kembali semua sheet (sheet data & sheet laporan)
     with pd.ExcelWriter(path, engine="openpyxl") as writer:
         for sheet_name, df in existing_sheets.items():
             if sheet_name in SHEET_NAMES:
                 df = df.reindex(columns=columns)
             df.to_excel(writer, sheet_name=sheet_name, index=False)
+# -------------------------------------------------------------
 
 def reset_excel(path: Path, columns, sheets):
     # Membuat file baru dengan sheet data kosong (otomatis menghapus sheet laporan lama)
@@ -93,7 +93,7 @@ def reset_excel(path: Path, columns, sheets):
     wb.save(path)
 
 def calculate_and_insert_average(df_loc: pd.DataFrame) -> pd.DataFrame:
-    # Fungsi ini tetap sama, hanya digunakan untuk memastikan rata-rata di kolom 'ph_rata_rata_bulan' tetap terisi (walaupun tidak digunakan di preview)
+    # (Logika perhitungan rata-rata tetap sama)
     df_data = df_loc[pd.to_datetime(df_loc["tanggal"], errors='coerce').notna()].copy()
     df_data['pH'] = pd.to_numeric(df_data['pH'], errors='coerce')
     df_data["tanggal"] = pd.to_datetime(df_data["tanggal"], errors="coerce")
@@ -120,7 +120,7 @@ def calculate_and_insert_average(df_loc: pd.DataFrame) -> pd.DataFrame:
     return df_final.sort_values(by="tanggal", key=lambda x: pd.to_datetime(x, errors='coerce'), ascending=False).reset_index(drop=True)
 
 # -----------------------------------------------
-# FUNGSI BARU: LAPORAN RATA-RATA BULANAN TERPUSAT
+# FUNGSI LAPORAN RATA-RATA BULANAN TERPUSAT
 # -----------------------------------------------
 def create_monthly_average_report(dfs: dict, data_path: Path):
     """Mengumpulkan semua rata-rata bulanan pH dari semua lokasi ke dalam satu sheet."""
@@ -128,7 +128,7 @@ def create_monthly_average_report(dfs: dict, data_path: Path):
     final_report_list = []
     
     for loc, df in dfs.items():
-        # Filter hanya baris rata-rata bulanan (yang kolom 'pH'-nya None dan 'ph_rata_rata_bulan' berisi nilai)
+        # Filter hanya baris rata-rata bulanan
         df_avg = df[df['ph_rata_rata_bulan'].notna()].copy()
         
         if not df_avg.empty:
@@ -141,13 +141,10 @@ def create_monthly_average_report(dfs: dict, data_path: Path):
     if not final_report_list:
         return
         
-    # Gabungkan semua lokasi
     report_df = pd.concat(final_report_list, ignore_index=True)
     
-    # Konversi kolom 'Periode' ke datetime untuk sorting yang benar (Bulan/Tahun)
     def parse_period(p):
         try:
-            # Mencoba mengurai Periode 'M/YYYY' menjadi datetime
             month, year = map(int, p.split('/'))
             return pd.to_datetime(f'{year}-{month}-01')
         except:
@@ -158,7 +155,7 @@ def create_monthly_average_report(dfs: dict, data_path: Path):
     
     # Tulis Laporan ke sheet 'Rata-rata Bulanan' di file Excel yang SAMA
     try:
-        # Baca dulu semua sheet yang ada, agar tidak menimpa sheet lain
+        # Baca semua sheet yang ada
         existing_sheets = pd.read_excel(data_path, sheet_name=None, engine="openpyxl")
         
         # Tambahkan/timpa sheet rata-rata bulanan
@@ -190,25 +187,28 @@ ph = st.number_input("pH (mis. 7.2)", min_value=0.0, max_value=14.0, value=7.0, 
 debit = st.number_input("Debit (mis. L/detik)", min_value=0.0, value=0.0, format="%.3f")
 
 if st.button("Simpan data & Perbarui Laporan Rata-rata"):
+    # 1. Baca HANYA sheet data
     all_sheets = read_all_sheets(EXCEL_DATA_PATH)
     df_loc = all_sheets.get(lokasi, pd.DataFrame(columns=COLUMNS))
 
+    # Tambahkan baris data baru
     new_row = {
         "tanggal": tanggal,
         "pH": float(ph),
         "debit": float(debit),
         "ph_rata_rata_bulan": None
     }
-    
     df_loc = pd.concat([df_loc, pd.DataFrame([new_row])], ignore_index=True)
 
+    # Hitung rata-rata bulanan dan sisipkan di sheet data
     df_loc_updated = calculate_and_insert_average(df_loc)
-
     all_sheets[lokasi] = df_loc_updated
+    
+    # 2. Simpan kembali sheet data (juga menjaga sheet laporan)
     save_all_sheets(all_sheets, EXCEL_DATA_PATH, COLUMNS)
 
-    # ✨ GENERATE LAPORAN RATA-RATA BULANAN TERPUSAT
-    create_monthly_average_report(read_all_sheets(EXCEL_DATA_PATH), EXCEL_DATA_PATH) 
+    # 3. Buat dan Timpa sheet laporan rata-rata
+    create_monthly_average_report(all_sheets, EXCEL_DATA_PATH) 
 
     st.success(f"Data tersimpan di '{lokasi}' dan *Laporan Rata-rata Bulanan* sudah diperbarui! ✅")
 
