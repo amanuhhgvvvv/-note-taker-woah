@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 from pathlib import Path
+from openpyxl import Workbook
 
 # ----------------------------
 # Konfigurasi / Nama file
@@ -30,13 +31,11 @@ st.title("📊 Pencatatan pH dan Debit Air")
 # ----------------------------
 def initialize_excel(path: Path):
     if not path.exists():
-        # jika file belum ada, buat semua sheet baru
         with pd.ExcelWriter(path, engine="openpyxl") as writer:
             for sheet in SHEET_NAMES:
                 df = pd.DataFrame(columns=COLUMNS)
                 df.to_excel(writer, sheet_name=sheet, index=False)
     else:
-        # jika file sudah ada, pastikan sheet baru ikut ditambahkan
         all_sheets = pd.read_excel(path, sheet_name=None, engine="openpyxl")
         with pd.ExcelWriter(path, engine="openpyxl", mode="a", if_sheet_exists="overlay") as writer:
             for sheet in SHEET_NAMES:
@@ -59,6 +58,17 @@ def save_all_sheets(dfs: dict, path: Path):
             df.to_excel(writer, sheet_name=sheet, index=False)
 
 # ----------------------------
+# Reset Excel setelah download
+# ----------------------------
+def reset_excel(path: Path):
+    wb = Workbook()
+    for i, sheet in enumerate(SHEET_NAMES):
+        ws = wb.active if i == 0 else wb.create_sheet()
+        ws.title = sheet
+        ws.append(COLUMNS)  # header
+    wb.save(path)
+
+# ----------------------------
 # Form input
 # ----------------------------
 st.markdown("Isi data pengukuran di bawah ini:")
@@ -73,7 +83,6 @@ if st.button("Simpan data"):
     all_sheets = read_all_sheets(EXCEL_PATH)
     df_loc = all_sheets.get(lokasi, pd.DataFrame(columns=COLUMNS))
 
-    # tambahkan data harian baru
     new_row = {
         "tanggal": tanggal,
         "pH": float(ph),
@@ -86,7 +95,7 @@ if st.button("Simpan data"):
     df_loc["tanggal"] = pd.to_datetime(df_loc["tanggal"], errors="coerce")
 
     # ---- Hitung rata-rata bulanan ----
-    df_data = df_loc[df_loc["ph_rata_rata_bulan"].isna()].copy()  # hanya data harian
+    df_data = df_loc[df_loc["ph_rata_rata_bulan"].isna()].copy()
     df_data["bulan"] = df_data["tanggal"].dt.month
     df_data["tahun"] = df_data["tanggal"].dt.year
 
@@ -97,7 +106,7 @@ if st.button("Simpan data"):
         .rename(columns={"pH": "ph_rata_rata_bulan"})
     )
 
-    # buang baris rata-rata lama (supaya tidak dobel)
+    # buang baris rata-rata lama
     df_loc = df_data[COLUMNS].copy()
 
     # tambahkan baris rata-rata tiap bulan
@@ -110,7 +119,6 @@ if st.button("Simpan data"):
         }
         df_loc = pd.concat([df_loc, pd.DataFrame([rata_row])], ignore_index=True)
 
-    # simpan lagi ke dict & file
     all_sheets[lokasi] = df_loc
     save_all_sheets(all_sheets, EXCEL_PATH)
 
@@ -132,18 +140,18 @@ except Exception as e:
     st.error(f"Gagal membaca file Excel: {e}")
 
 # ----------------------------
-# Tombol download file Excel gabungan
+# Tombol download file Excel gabungan + reset
 # ----------------------------
 st.markdown("---")
 st.subheader("Download file Excel gabungan")
 with open(EXCEL_PATH, "rb") as f:
     data_bytes = f.read()
 
-st.download_button(
+if st.download_button(
     label="Download file Excel (semua lokasi)",
     data=data_bytes,
     file_name="ph_debit_data.xlsx",
     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-)
-
-st.info("File disimpan di server sebagai ph_debit_data.xlsx. Data akan bertahan kecuali file dihapus dari server.")
+):
+    reset_excel(EXCEL_PATH)  # 👉 otomatis reset setelah berhasil download
+    st.success("Data berhasil diunduh dan aplikasi telah direset ✅")
