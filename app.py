@@ -32,297 +32,263 @@ def initialize_excel(path, sheet_names, columns):
 def load_data(path, sheet_name):
     """Memuat data dari sheet spesifik."""
     try:
-        # Menggunakan engine openpyxl karena kita menggunakan format .xlsx
-        return pd.read_excel(path, sheet_name=sheet_name, engine='openpyxl')
+        return pd.read_excel(path, sheet_name=sheet_name)
     except FileNotFoundError:
+        st.error(f"File {path} tidak ditemukan.")
         return pd.DataFrame(columns=COLUMNS_LONG)
     except ValueError:
-        # Menangani ValueError jika sheet tidak ditemukan atau format tidak valid
+        # Jika sheet_name tidak ada, kembalikan DataFrame kosong
         return pd.DataFrame(columns=COLUMNS_LONG)
 
-def save_data(df, path, sheet_name):
-    """Menyimpan data kembali ke sheet yang spesifik."""
-    # Hapus duplikat berdasarkan tanggal, ambil baris terakhir (data terbaru)
-    df = df.astype(str).drop_duplicates(subset=['tanggal'], keep='last')
-    
-    # Konversi tanggal kembali ke datetime
-    df['tanggal'] = pd.to_datetime(df['tanggal'], errors='coerce')
-    df = df.sort_values(by='tanggal')
-    
-    # Memastikan file ada sebelum menulis
-    initialize_excel(path, SHEET_NAMES, COLUMNS_LONG)
-    
-    # Muat semua sheet (kecuali yang sedang diupdate)
-    all_sheets = {sheet: load_data(path, sheet) for sheet in SHEET_NAMES if sheet != sheet_name}
-    all_sheets[sheet_name] = df # Menambahkan sheet yang baru diupdate
-    
-    # Tulis ulang seluruh workbook dengan engine openpyxl
-    with pd.ExcelWriter(path, engine='openpyxl') as writer:
-        for sheet, data in all_sheets.items():
-            data.to_excel(writer, sheet_name=sheet, index=False)
+def save_data(path, location, new_data):
+    """Menyimpan data baru ke sheet yang sesuai."""
+    # Baca semua sheet yang ada
+    all_dfs = pd.read_excel(path, sheet_name=None)
 
+    # Dapatkan DataFrame untuk lokasi yang dipilih
+    if location in all_dfs:
+        df = all_dfs[location]
+        # Pastikan kolom sesuai dengan COLUMNS_LONG sebelum concate
+        df = df[COLUMNS_LONG]
+    else:
+        # Buat DataFrame baru jika lokasi tidak ada (seharusnya tidak terjadi jika initialize_excel benar)
+        df = pd.DataFrame(columns=COLUMNS_LONG)
 
-# --- FUNGSI UTILITY EXCEL DOWNLOAD (PERBAIKAN) ---
+    # Tambahkan data baru
+    new_data_df = pd.DataFrame([new_data], columns=COLUMNS_LONG)
+    df_updated = pd.concat([df, new_data_df], ignore_index=True)
 
-def to_excel(df):
-    """Membuat file Excel dalam format BytesIO dengan data yang di-pivot sesuai format logbook."""
-    output = BytesIO()
-    # PERBAIKAN 1: Tambahkan engine='openpyxl' untuk penulisan ke BytesIO
-    with pd.ExcelWriter(output, engine='openpyxl') as writer: 
-        
-        # Grup data berdasarkan lokasi (sheet)
-        grouped_location = df.groupby('lokasi')
-        
-        # Loop melalui setiap lokasi
-        for location, df_loc in grouped_location:
-            sheet_name_safe = location.replace('/', ' ') # Membuat nama sheet aman
-            start_row = 0
-            
-            # PERBAIKAN 2: Lelehkan data (Melt) untuk memisahkan pH dan debit ke kolom 'parameter'
-            df_melted = df_loc.melt(
-                id_vars=['tanggal', 'lokasi'],
-                value_vars=['pH', 'debit'],
-                var_name='parameter',
-                value_name='nilai'
-            ).dropna(subset=['nilai'])
-            
-            # Grup data berdasarkan tahun dan bulan (untuk setiap blok logbook)
-            grouped_periode = df_melted.groupby([df_melted['tanggal'].dt.year, df_melted['tanggal'].dt.month])
-            
-            for (year, month), df_log in grouped_periode:
-                
-                # Dapatkan nama bulan
-                try:
-                    month_name = datetime(year, month, 1).strftime('%B')
-                except ValueError:
-                    continue
-
-                # --- PERBAIKAN 3: Lakukan Pivoting untuk format Logbook Harian ---
-                
-                # Lakukan Pivot: index=Parameter, columns=Hari, values=Nilai
-                df_pivot = df_log.pivot_table(
-                    index='parameter',
-                    columns=df_log['tanggal'].dt.day,
-                    values='nilai',
-                    aggfunc='first'
-                ).reset_index()
-                
-                # Ganti nama kolom 'parameter' menjadi 'Parameter' dan hapus nama kolom index
-                df_pivot.columns.name = None
-                df_pivot = df_pivot.rename(columns={'parameter': 'Parameter'})
-                
-                # Tambahkan kolom 'No' (1, 2, ...)
-                df_pivot.insert(0, 'No', range(1, 1 + len(df_pivot)))
-                
-                # Definisikan semua kolom yang diperlukan di output Excel
-                day_cols = list(range(1, 32))
-                fixed_cols = ['No', 'Parameter']
-                # Nama kolom akhir sesuai template (gunakan float untuk hari agar sesuai dengan format template)
-                final_cols_names = fixed_cols + [float(d) for d in day_cols] + ['Rata-Rata', 'Faktor Konversi', 'Debit (m3/H)', 'Debit (m3/M)']
-                
-                # Rename kolom hari di df_pivot (dari int ke float)
-                column_mapping = {col: float(col) if isinstance(col, int) else col for col in df_pivot.columns if isinstance(col, int)}
-                df_pivot = df_pivot.rename(columns=column_mapping)
-                
-                # Reindex ke final_cols_names
-                df_pivot_final = df_pivot.reindex(columns=final_cols_names, fill_value='')
-                
-                # --- Tulis Header Awal (Baris 1-5) ---
-                header_df = pd.DataFrame([
-                    ['Logbook pengambilan pH dan Debit Harian'],
-                    [f'Lokasi {location}'],
-                    [''],
-                    [''],
-                    [f'Periode : Bulan {month_name} {year}']
-                ])
-                header_df.to_excel(writer, sheet_name=sheet_name_safe, startrow=start_row, index=False, header=False)
-                
-                # --- Tulis Baris Header Kolom 1 (Baris 6: Tanggal Pengukuran) ---
-                header_row1_data = [['No', 'Parameter'] + ['Tanggal Pengukuran'] * 31 + ['Rata-Rata', 'Faktor Konversi', 'Debit (m3/H)', 'Debit (m3/M)']]
-                pd.DataFrame(header_row1_data).to_excel(
-                    writer, sheet_name=sheet_name_safe, startrow=start_row + 5, index=False, header=False
-                )
-                
-                # --- Tulis Data Pivot (Mulai Baris 7: Header Hari, Baris 8: Data) ---
-                # Tulis df_pivot_final. Header DataFrame (1.0, 2.0, ...) akan menjadi baris header kedua.
-                df_pivot_final.to_excel(
-                    writer, 
-                    sheet_name=sheet_name_safe, 
-                    startrow=start_row + 6, # Mulai dari baris 7 (indeks 6)
-                    index=False, 
-                    header=True # Gunakan nama kolom sebagai baris header ke-2
-                )
-                
-                # Hitung jumlah baris yang ditulis
-                rows_written = 5 + 1 + 1 + len(df_pivot_final) 
-                
-                # Pindah baris awal untuk periode berikutnya
-                start_row += rows_written + 1 # Tambah 1 baris kosong
+    # Hapus duplikat (untuk mencegah entri ganda pada tanggal dan lokasi yang sama)
+    df_updated.drop_duplicates(subset=['tanggal'], keep='last', inplace=True)
+    df_updated['tanggal'] = pd.to_datetime(df_updated['tanggal']).dt.date
+    
+    # Simpan kembali semua sheet
+    writer = pd.ExcelWriter(path, engine='xlsxwriter')
+    for sheet_name in SHEET_NAMES:
+        if sheet_name == location:
+            df_updated.to_excel(writer, sheet_name=location, index=False)
+        elif sheet_name in all_dfs:
+            # Pastikan sheet yang lain juga disalin kembali
+            all_dfs[sheet_name].to_excel(writer, sheet_name=sheet_name, index=False)
+        else:
+            # Buat sheet kosong jika belum ada
+             pd.DataFrame(columns=COLUMNS_LONG).to_excel(writer, sheet_name=sheet_name, index=False)
 
     writer.close()
-    return output.getvalue()
+    st.cache_data.clear() # Bersihkan cache data agar data terbaru dimuat
+
+# --- FUNGSI GENERATOR LOGBOOK (WIDE FORMAT) BARU ---
+
+def generate_logbook_view(df_long, year, month):
+    """
+    Mengubah data format panjang ke format Logbook Bulanan (lebar) sesuai permintaan.
+    """
+    if df_long.empty:
+        return pd.DataFrame()
+
+    # Pastikan kolom tanggal adalah datetime
+    df_long['tanggal'] = pd.to_datetime(df_long['tanggal'])
+
+    # Filter data berdasarkan Bulan dan Tahun yang dipilih
+    df_filtered = df_long[
+        (df_long['tanggal'].dt.year == year) & 
+        (df_long['tanggal'].dt.month == month)
+    ].copy()
+    
+    if df_filtered.empty:
+        return pd.DataFrame()
+
+    # Ekstrak hari dari tanggal dan ubah menjadi float (sesuai template Anda)
+    df_filtered['Day'] = df_filtered['tanggal'].dt.day.astype(float)
+
+    # Hitung Rata-Rata Bulanan
+    # pH Rata-Rata Bulanan
+    ph_monthly_avg = df_filtered['pH'].mean()
+    
+    # Debit Rata-Rata Bulanan (Debit harian/m3/H di template Anda)
+    debit_daily_avg = df_filtered['debit'].mean() 
+    
+    # Asumsi: Debit (m3/M) adalah Debit Rata-Rata (m3/H) * 24 jam * jumlah hari dalam bulan
+    num_days_in_month = pd.Period(f'{year}-{month:02d}-01', 'D').days_in_month
+    debit_monthly_m3 = debit_daily_avg * 24 * num_days_in_month
+
+    # Pivot data ke format lebar
+    df_ph = df_filtered.pivot(index='lokasi', columns='Day', values='pH').T
+    df_debit = df_filtered.pivot(index='lokasi', columns='Day', values='debit').T
+
+    # Gabungkan pH dan Debit kembali ke format baris
+    # Buat DataFrame target Logbook
+    days = list(np.arange(1.0, 32.0))
+    header_cols = ['No', 'Parameter'] + days + ['Rata-Rata', 'Faktor Konversi', 'Debit (m3/H)', 'Debit (m3/M)']
+    
+    logbook_df = pd.DataFrame(columns=header_cols)
+    
+    # Isi data pH
+    ph_data = {'No': 1.0, 'Parameter': 'pH'}
+    for day in days:
+        # Gunakan 'Day' yang sudah diubah ke float sebagai kolom
+        ph_data[day] = df_ph.get(day, np.nan).values[0] if not df_ph.empty and day in df_ph.columns else np.nan
+    ph_data['Rata-Rata'] = ph_monthly_avg
+    logbook_df = pd.concat([logbook_df, pd.DataFrame([ph_data])], ignore_index=True)
+
+    # Isi data Debit
+    debit_data = {'No': 2.0, 'Parameter': 'Debit'}
+    for day in days:
+        debit_data[day] = df_debit.get(day, np.nan).values[0] if not df_debit.empty and day in df_debit.columns else np.nan
+    
+    # Asumsi Debit Rata-Rata (m3/H) dan Faktor Konversi hanya berlaku untuk Debit
+    debit_data['Rata-Rata'] = debit_daily_avg
+    debit_data['Faktor Konversi'] = 3.6 # Nilai asumsi dari template Anda
+    debit_data['Debit (m3/H)'] = debit_daily_avg * 3.6
+    debit_data['Debit (m3/M)'] = debit_monthly_m3 # Debit Bulanan (m3/M)
+    
+    logbook_df = pd.concat([logbook_df, pd.DataFrame([debit_data])], ignore_index=True)
+    
+    # Formatting (Optional: clean up index and NaNs)
+    logbook_df = logbook_df.fillna('')
+    
+    return logbook_df
 
 
-# --- TAMPILAN STREAMLIT UTAMA ---
+# --- TAMPILAN STREAMLIT ---
 
-st.set_page_config(layout="wide", page_title="Logbook pH & Debit Harian")
+st.title("Aplikasi Pencatatan pH dan Debit Air")
+st.markdown("---")
 
-# Inisialisasi file Excel
+# 1. Inisialisasi File Excel
 initialize_excel(EXCEL_PATH, SHEET_NAMES, COLUMNS_LONG)
 
-st.title("Logbook pH & Debit Harian")
-
-# Sidebar untuk Data Entry
-st.sidebar.header("Input Data Harian")
-
-with st.sidebar.form(key='data_form'):
-    lokasi_input = st.selectbox("Lokasi", SHEET_NAMES)
-    tanggal_input = st.date_input("Tanggal", datetime.now().date())
-    ph_input = st.text_input("Nilai pH", "")
-    debit_input = st.text_input("Nilai Debit (l/S)", "")
+# --- FORMULIR INPUT DATA BARU ---
+st.header("1. Input Data Pengukuran Harian")
+with st.form("input_form"):
+    col1, col2 = st.columns(2)
     
-    submit_button = st.form_submit_button("Simpan Data")
-
-    if submit_button:
-        # Konversi input ke tipe data yang sesuai
-        tanggal_dt = pd.to_datetime(tanggal_input)
-        
-        # Validasi dan konversi nilai pH dan Debit
-        try:
-            ph_value = float(ph_input) if ph_input and ph_input.strip() else np.nan
-        except ValueError:
-            st.error("Input pH harus berupa angka.")
-            ph_value = np.nan
-
-        try:
-            debit_value = float(debit_input) if debit_input and debit_input.strip() else np.nan
-        except ValueError:
-            st.error("Input Debit harus berupa angka.")
-            debit_value = np.nan
-        
-        # Hanya simpan jika ada setidaknya satu nilai yang valid
-        if not pd.isna(ph_value) or not pd.isna(debit_value):
-            new_data = pd.DataFrame([{
-                'tanggal': tanggal_dt,
-                'lokasi': lokasi_input,
-                'pH': ph_value,
-                'debit': debit_value
-            }])
-            
-            # Muat data lama
-            df_old = load_data(EXCEL_PATH, lokasi_input)
-            
-            # Gabungkan data baru dengan data lama
-            df_combined = pd.concat([df_old, new_data], ignore_index=True)
-            
-            # Simpan data yang sudah digabungkan
-            save_data(df_combined, EXCEL_PATH, lokasi_input)
-            
-            st.success(f"Data pH dan Debit untuk {lokasi_input} tanggal {tanggal_input} berhasil disimpan!")
-            # Memaksa cache dimuat ulang
-            load_data.clear()
-        else:
-            st.warning("Anda harus memasukkan setidaknya nilai pH atau Debit yang valid.")
-
-
-# --- TAMPILAN DATA ---
-
-st.header("Data Logbook Tersimpan")
-
-# Tabs untuk setiap lokasi
-tab_titles = SHEET_NAMES
-tabs = st.tabs(tab_titles)
-
-for i, sheet_name in enumerate(SHEET_NAMES):
-    with tabs[i]:
-        st.subheader(f"Lokasi: {sheet_name}")
-        
-        # Muat data yang sudah disimpan (akan menggunakan cache kecuali di-clear)
-        df_log = load_data(EXCEL_PATH, sheet_name)
-        
-        # Konversi kembali 'tanggal' ke format datetime untuk manipulasi
-        df_log['tanggal'] = pd.to_datetime(df_log['tanggal'], errors='coerce').dt.date
-        df_log = df_log.dropna(subset=['tanggal'])
-        
-        # Pisahkan bulan dan tahun untuk dropdown
-        df_log['tahun'] = pd.to_datetime(df_log['tanggal']).dt.year
-        df_log['bulan'] = pd.to_datetime(df_log['tanggal']).dt.month
-
-        # Filter data berdasarkan bulan dan tahun
-        all_years = sorted(df_log['tahun'].unique(), reverse=True)
-        # Tambahkan nilai default untuk mencegah error saat tidak ada data
-        selected_year = st.selectbox(f"Pilih Tahun ({sheet_name})", [None] + all_years, key=f'year_select_{sheet_name}')
-
-        if selected_year is not None:
-            df_log_year = df_log[df_log['tahun'] == selected_year]
-            
-            all_months = sorted(df_log_year['bulan'].unique(), reverse=True)
-            month_names = [datetime(selected_year, m, 1).strftime('%B') for m in all_months]
-            
-            # Buat mapping dari nama bulan ke angka bulan
-            month_map = {name: month for name, month in zip(month_names, all_months)}
-            
-            selected_month_name = st.selectbox(f"Pilih Bulan ({sheet_name})", [None] + month_names, key=f'month_select_{sheet_name}')
-            selected_month = month_map.get(selected_month_name)
-
-            if selected_month is not None:
-                df_log_final = df_log_year[df_log_year['bulan'] == selected_month]
-                
-                if not df_log_final.empty:
-                    
-                    # Siapkan data untuk ditampilkan dalam format logbook (pivot)
-                    # Data harus di-melt dulu untuk kolom 'pH' dan 'debit'
-                    df_display_melted = df_log_final.melt(
-                        id_vars=['tanggal', 'lokasi'],
-                        value_vars=['pH', 'debit'],
-                        var_name='Parameter',
-                        value_name='Nilai'
-                    ).dropna(subset=['Nilai'])
-                    
-                    # Lakukan Pivot: index=Parameter, columns=Hari, values=Nilai
-                    df_display_pivot = df_display_melted.pivot_table(
-                        index='Parameter',
-                        columns=df_display_melted['tanggal'].apply(lambda x: x.day),
-                        values='Nilai',
-                        aggfunc='first'
-                    ).reset_index()
-                    
-                    df_display_pivot.columns.name = None
-                    df_display_pivot.insert(0, 'No', range(1, 1 + len(df_display_pivot)))
-                    
-                    # Kolom yang akan ditampilkan (No, Parameter, Hari 1, 2, 3...)
-                    display_cols_base = ['No', 'Parameter']
-                    display_cols_final = display_cols_base + [c for c in df_display_pivot.columns if c not in display_cols_base]
-                    
-                    st.dataframe(df_display_pivot[display_cols_final].fillna(''))
-                    
-                    st.markdown("---")
-                    st.caption("Data ditampilkan dalam format logbook (Hari sebagai kolom).")
-                else:
-                    st.info("Tidak ada data untuk bulan yang dipilih.")
-                
-# --- UNDUH DATA ---
-
-st.sidebar.header("Unduh Data")
-
-# Muat semua data dari semua sheet untuk didownload
-all_data_for_download = pd.DataFrame(columns=COLUMNS_LONG)
-for sheet in SHEET_NAMES:
-    df_sheet = load_data(EXCEL_PATH, sheet)
-    df_sheet['lokasi'] = sheet # Tambahkan kolom lokasi sebelum digabungkan
-    all_data_for_download = pd.concat([all_data_for_download, df_sheet], ignore_index=True)
+    with col1:
+        input_date = st.date_input("Tanggal Pengukuran", datetime.now().date())
     
-# Konversi kembali 'tanggal' ke format datetime yang benar
-all_data_for_download['tanggal'] = pd.to_datetime(all_data_for_download['tanggal'], errors='coerce')
-all_data_for_download = all_data_for_download.dropna(subset=['tanggal'])
+    with col2:
+        lokasi_terpilih = st.selectbox("Lokasi Pengukuran", SHEET_NAMES)
 
-# Tombol download
-st.download_button(
-    label="Unduh Logbook Excel (Semua Lokasi & Bulan)",
-    data=to_excel(all_data_for_download),
-    file_name=f'Logbook_pH_Debit_All_{datetime.now().strftime("%Y%m%d_%H%M%S")}.xlsx',
-    mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-)
+    col3, col4 = st.columns(2)
+    with col3:
+        input_ph = st.number_input("Nilai pH", min_value=0.0, max_value=14.0, format="%.2f", step=0.01)
 
-st.sidebar.markdown("---")
-st.sidebar.markdown("Dibuat dengan Streamlit dan Pandas.")
+    with col4:
+        # Asumsi debit dalam m3/H agar mudah dikonversi
+        input_debit = st.number_input("Nilai Debit (m³/H)", min_value=0.0, format="%.3f", step=0.01)
+
+    submitted = st.form_submit_button("Simpan Data")
+
+    if submitted:
+        new_data = {
+            'tanggal': input_date, 
+            'lokasi': lokasi_terpilih, 
+            'pH': input_ph, 
+            'debit': input_debit
+        }
+        try:
+            save_data(EXCEL_PATH, lokasi_terpilih, new_data)
+            st.success(f"Data pH: {input_ph} dan Debit: {input_debit} untuk lokasi **{lokasi_terpilih}** pada tanggal **{input_date}** berhasil disimpan.")
+        except Exception as e:
+            st.error(f"Gagal menyimpan data: {e}")
+
+# --- TAMPILAN LOGBOOK DAN UNDUH DATA ---
+st.markdown("---")
+st.header("2. Pratinjau dan Unduh Logbook (Format Bulanan)")
+
+# Kontrol pemilihan untuk tampilan Logbook
+col_view_1, col_view_2, col_view_3 = st.columns(3)
+with col_view_1:
+    view_location = st.selectbox("Pilih Lokasi Logbook", SHEET_NAMES, key='view_location')
+
+with col_view_2:
+    current_year = datetime.now().year
+    view_year = st.selectbox("Pilih Tahun", range(current_year - 2, current_year + 2), index=2, key='view_year')
+
+with col_view_3:
+    current_month = datetime.now().month
+    view_month_name = st.selectbox("Pilih Bulan", 
+        list(pd.to_datetime(np.arange(1, 13), format='%m').strftime('%B')), 
+        index=current_month - 1, key='view_month')
+    view_month = pd.to_datetime(view_month_name, format='%B').month
+
+# Muat data yang tersimpan (format panjang)
+df_saved_long = load_data(EXCEL_PATH, view_location)
+
+# Konversi ke format Logbook (lebar)
+logbook_df = generate_logbook_view(df_saved_long, view_year, view_month)
+
+# Tampilkan Logbook
+if logbook_df.empty:
+    st.info(f"Tidak ada data untuk lokasi **{view_location}** pada bulan **{view_month_name} {view_year}**.")
+else:
+    st.subheader(f"Logbook pH dan Debit: {view_location} - {view_month_name} {view_year}")
+    st.dataframe(logbook_df)
+
+    # Tombol Download dalam format Excel yang benar
+    st.markdown("### Unduh Logbook")
+    
+    # Membuat File Excel Logbook untuk Download (Semua Lokasi)
+    def to_excel(df_long_all):
+        output = BytesIO()
+        writer = pd.ExcelWriter(output, engine='xlsxwriter')
+        
+        # Iterasi melalui semua lokasi untuk membuat sheet Logbook
+        for location in SHEET_NAMES:
+            df_loc = df_long_all[df_long_all['lokasi'] == location].copy()
+            
+            # Mendapatkan semua bulan dan tahun unik dari data ini
+            df_loc['Year'] = df_loc['tanggal'].dt.year
+            df_loc['Month'] = df_loc['tanggal'].dt.month
+            unique_periods = df_loc[['Year', 'Month']].drop_duplicates().sort_values(['Year', 'Month'])
+            
+            # Buat sheet untuk Logbook, yang berisi logbook per bulan
+            start_row = 0
+            for index, row in unique_periods.iterrows():
+                year = row['Year']
+                month = row['Month']
+                month_name = pd.to_datetime(month, format='%m').strftime('%B')
+                
+                # Filter data untuk bulan ini
+                df_month = df_loc[(df_loc['Year'] == year) & (df_loc['Month'] == month)]
+                
+                # Buat Logbook format lebar
+                df_log = generate_logbook_view(df_month, year, month)
+                
+                if not df_log.empty:
+                    # Tulis judul dan periode
+                    sheet_name_safe = location[:31] # Batas nama sheet
+                    
+                    # Tambahkan header Logbook di awal setiap periode
+                    # Ini adalah trik untuk membuat tampilan logbook yang lebih mendekati format template Anda
+                    header_df = pd.DataFrame([
+                        ['Logbook pengambilan pH dan Debit Harian'],
+                        [f'Lokasi {location}'],
+                        [''],
+                        [''],
+                        [f'Periode : Bulan {month_name} {year}']
+                    ])
+                    header_df.to_excel(writer, sheet_name=sheet_name_safe, startrow=start_row, index=False, header=False)
+                    
+                    # Tulis DataFrame Logbook di bawah header
+                    df_log.to_excel(writer, sheet_name=sheet_name_safe, startrow=start_row + 5, index=False)
+                    
+                    # Pindah baris awal untuk periode berikutnya
+                    start_row += len(df_log) + 7
+                    
+        writer.close()
+        return output.getvalue()
+
+    # Muat semua data dari semua sheet untuk didownload
+    all_data_for_download = pd.DataFrame(columns=COLUMNS_LONG)
+    for sheet in SHEET_NAMES:
+        df_sheet = load_data(EXCEL_PATH, sheet)
+        df_sheet['lokasi'] = sheet
+        all_data_for_download = pd.concat([all_data_for_download, df_sheet], ignore_index=True)
+    
+    st.download_button(
+        label="Unduh Logbook Excel (Semua Lokasi & Bulan)",
+        data=to_excel(all_data_for_download),
+        file_name='Logbook_pH_Debit_Output.xlsx',
+        mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    )
