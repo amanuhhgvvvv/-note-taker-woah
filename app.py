@@ -39,6 +39,7 @@ def initialize_excel(path: Path):
     else:
         # jika file sudah ada, pastikan sheet baru ikut ditambahkan (tanpa menggunakan cache)
         try:
+            # Menggunakan converters={'tanggal': str} di initialize_excel juga
             all_sheets = pd.read_excel(path, sheet_name=None, engine="openpyxl", converters={'tanggal': str})
         except:
             all_sheets = {}
@@ -120,12 +121,20 @@ if st.button("Simpan data"):
     
         # Tambahkan baris rata-rata tiap bulan
         for _, row in avg_df.iterrows():
+            # 👇👇👇 PERBAIKAN UTAMA DI SINI: KONVERSI KE INTEGER 👇👇👇
+            # Mengkonversi nilai bulan dan tahun ke integer untuk menghindari ValueError
+            # saat menggunakan format string :02d
+            bulan_int = int(row['bulan'])
+            tahun_int = int(row['tahun'])
+            
             rata_row = {
-                "tanggal": f"Rata-rata {row['bulan']:02d}/{row['tahun']}",
+                "tanggal": f"Rata-rata {bulan_int:02d}/{tahun_int}",
                 "pH": None,
                 "debit": None,
                 "ph_rata_rata_bulan": row["ph_rata_rata_bulan"]
             }
+            # 👆👆👆 AKHIR PERBAIKAN 👆👆👆
+            
             df_loc_new = pd.concat([df_loc_new, pd.DataFrame([rata_row])], ignore_index=True)
         
         df_loc = df_loc_new
@@ -137,7 +146,7 @@ if st.button("Simpan data"):
     save_all_sheets(all_sheets, EXCEL_PATH)
 
     st.success(f"Data tersimpan di sheet '{lokasi}' — tanggal {tanggal.strftime('%Y-%m-%d')}")
-    st.rerun() # Paksa rerun untuk update preview
+    st.rerun() 
 
 # ----------------------------
 # Preview data
@@ -186,10 +195,12 @@ if EXCEL_PATH.exists():
         data=data_bytes,
         file_name="ph_debit_data.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        on_click=lambda: st.session_state.update(download_clicked=True)
+        # Menggunakan on_click untuk setting state segera setelah tombol ditekan
+        on_click=lambda: st.session_state.update(download_clicked=True) 
     )
 
-    # 👇👇👇 LOGIKA HAPUS DATA SETELAH DOWNLOAD BERHASIL 👇👇👇
+    # LOGIKA HAPUS DATA SETELAH DOWNLOAD BERHASIL
+    # Logika ini akan berjalan pada rerun berikutnya setelah on_click
     if st.session_state['download_clicked']:
         # Reset flag agar tidak loop
         st.session_state['download_clicked'] = False 
