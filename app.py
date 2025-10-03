@@ -22,7 +22,7 @@ COLUMNS_LONG = ['tanggal', 'lokasi', 'pH', 'debit']
 def initialize_excel(path, sheet_names, columns):
     """Memastikan file Excel dan sheet yang diperlukan sudah ada."""
     if not os.path.exists(path):
-        writer = pd.ExcelWriter(path, engine='xlsxwriter')
+        writer = pd.ExcelWriter(path, engine='openpyxl')
         for sheet in sheet_names:
             df_init = pd.DataFrame(columns=columns)
             df_init.to_excel(writer, sheet_name=sheet, index=False)
@@ -292,3 +292,4 @@ else:
         file_name='Logbook_pH_Debit_Output.xlsx',
         mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
     )
+
