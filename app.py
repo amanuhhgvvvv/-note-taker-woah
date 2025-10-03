@@ -207,6 +207,7 @@ if EXCEL_PATH.exists():
         key='download_excel_button'
     )
 
+    # 👇👇👇 LOGIKA HAPUS DATA SETELAH DOWNLOAD 👇👇👇
     if download_button:
         # Hapus file yang ada
         if EXCEL_PATH.exists():
