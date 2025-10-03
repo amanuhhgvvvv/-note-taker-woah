@@ -63,7 +63,7 @@ def save_data(path, location, new_data):
     df_updated['tanggal'] = pd.to_datetime(df_updated['tanggal']).dt.date
     
     # Simpan kembali semua sheet
-    writer = pd.ExcelWriter(path, engine='xlsxwriter')
+    writer = pd.ExcelWriter(path, engine='openpyxl') 
     for sheet_name in SHEET_NAMES:
         if sheet_name == location:
             df_updated.to_excel(writer, sheet_name=location, index=False)
@@ -292,4 +292,5 @@ else:
         file_name='Logbook_pH_Debit_Output.xlsx',
         mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
     )
+
 
