@@ -93,7 +93,7 @@ if st.button("Simpan data"):
     all_sheets = read_all_sheets(EXCEL_PATH)
     df_loc = all_sheets.get(lokasi, pd.DataFrame(columns=COLUMNS))
 
-    # --- 🛠️ PERBAIKAN: Hapus entri lama dengan tanggal yang sama (harian) ---
+    # --- PERBAIKAN: Hapus entri lama dengan tanggal yang sama (harian) ---
     tanggal_input_str = tanggal.strftime('%Y-%m-%d')
 
     # Pisahkan data harian dari baris rata-rata
@@ -116,7 +116,7 @@ if st.button("Simpan data"):
     df_loc_with_new_data = pd.concat([df_data_only, pd.DataFrame([new_row])], ignore_index=True)
 
 
-    # ---- Hitung dan Tambahkan Rata-rata Bulanan (HANYA satu baris per bulan) ----
+    # ---- Hitung dan Tambahkan Rata-rata Bulanan ----
     
     df_hitung_rata = df_loc_with_new_data.copy()
     df_hitung_rata["tanggal_dt"] = pd.to_datetime(df_hitung_rata["tanggal"], errors="coerce")
@@ -145,7 +145,6 @@ if st.button("Simpan data"):
             tahun_int = int(row['tahun'])
             
             rata_row = {
-                # Format tanggal rata-rata sebagai string
                 "tanggal": f"Rata-rata {bulan_int:02d}/{tahun_int}", 
                 "pH": None,
                 "debit": None,
@@ -176,10 +175,7 @@ try:
     df_raw = all_sheets.get(lokasi, pd.DataFrame(columns=COLUMNS))
     
     # 1. Filter dan Siapkan Data Harian
-    # Ambil HANYA baris data harian (yang tidak dimulai dengan "Rata-rata")
     df_data_rows = df_raw[~df_raw["tanggal"].astype(str).str.startswith('Rata-rata', na=False)].copy()
-    
-    # Ambil HANYA baris rata-rata
     df_avg_rows = df_raw[df_raw["tanggal"].astype(str).str.startswith('Rata-rata', na=False)].copy()
 
     df_data_rows['tanggal_dt'] = pd.to_datetime(df_data_rows['tanggal'], errors='coerce')
@@ -222,10 +218,8 @@ try:
 
         # 2. Lakukan Operasi Pivot (Transformasi Data)
         
-        # Pilih kolom yang akan di-pivot (Hanya pH dan Debit)
         df_pivot_data = df_filtered[['Hari', 'pH', 'debit']]
         
-        # Susun ulang data: Hari sebagai Kolom, Parameter sebagai Index
         df_pivot = pd.melt(
             df_pivot_data, 
             id_vars=['Hari'], 
@@ -242,7 +236,6 @@ try:
         
         # 3. Tambahkan Rata-rata Bulanan (Kolom terakhir)
         
-        # Ambil rata-rata untuk bulan/tahun yang dipilih dari df_avg_rows
         avg_row = df_avg_rows[
             df_avg_rows['tanggal'].astype(str).str.contains(f"{selected_month:02d}/{selected_year}", na=False)
         ]
@@ -251,27 +244,38 @@ try:
             ph_avg = avg_row['ph_rata_rata_bulan'].iloc[0]
             debit_avg = avg_row['debit_rata_rata_bulan'].iloc[0]
 
-            # Siapkan baris rata-rata untuk digabungkan
             rata_rata_series = pd.Series(
                 data=[ph_avg, debit_avg], 
                 index=['pH', 'debit'], 
                 name='Rata-rata'
             )
             
-            # Gabungkan Kolom Rata-rata
             df_pivot['Rata-rata'] = rata_rata_series 
         else:
              df_pivot['Rata-rata'] = np.nan
-
+        
         # 4. Finalisasi Tampilan
         
-        # Tambahkan kolom 'Satuan'
-        df_pivot.insert(0, 'Satuan', ['pH', 'l/d'])
+        # 👇👇👇 PERUBAHAN UTAMA DI SINI 👇👇👇
+        
+        # 1. Ganti label Index utama menjadi nama lokasi (misal: Power Plant)
+        df_pivot.index.name = lokasi 
+        
+        # 2. Hapus kolom Satuan
+        # Kita tidak perlu lagi menggunakan df_pivot.insert(0, 'Satuan', ['pH', 'l/d'])
+        
+        # 3. Ganti nama Index 'pH' dan 'debit' di baris menjadi 'pH' dan 'Debit (l/d)'
+        # Jika Anda ingin tetap menampilkan satuannya, Anda bisa ganti indexnya:
+        df_pivot = df_pivot.rename(index={'pH': 'pH', 'debit': 'Debit (l/d)'})
+        
+        # Urutkan baris
+        df_pivot = df_pivot.reindex(['pH', 'Debit (l/d)'])
 
-        # Ganti nama Index (Parameter) dan Urutkan
-        df_pivot.index.name = "CLAY & LATERITE"
-        df_pivot = df_pivot.reindex(['pH', 'debit'])
-
+        # Atur format tampilan agar lebih rapi (misalnya, 3 angka di belakang koma)
+        # Terapkan hanya pada kolom angka (Hari 1, 2, 3... dan Rata-rata)
+        numeric_cols = [col for col in df_pivot.columns if isinstance(col, (int, str)) and col not in ['Satuan']]
+        formatters = {col: '%.3f' for col in numeric_cols}
+        
         st.dataframe(df_pivot, use_container_width=True)
 
 except Exception as e:
