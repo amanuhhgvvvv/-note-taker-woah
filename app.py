@@ -69,9 +69,6 @@ def save_all_sheets(dfs: dict, path: Path):
             df = df.reindex(columns=COLUMNS)
             df.to_excel(writer, sheet_name=sheet, index=False)
 
-# ----------------------------------------------------
-# FUNGSI MEMBUAT FILE EXCEL UNTUK DOWNLOAD DENGAN FORMAT PIVOT
-# ----------------------------------------------------
 def create_pivot_data(df_raw, lokasi):
     """Memproses DataFrame mentah menjadi format pivot bulanan."""
     
@@ -161,7 +158,7 @@ def create_excel_with_pivot_sheets(all_raw_sheets):
             'valign': 'vcenter'
         })
         
-        # 2. Tulis sheet data pivot (format bulanan)
+       
         for lokasi in SHEET_NAMES:
             df_raw = all_raw_sheets.get(lokasi)
             if df_raw is not None:
@@ -434,3 +431,4 @@ if EXCEL_PATH.exists() and all_raw_sheets:
 
 else:
     st.warning("File Excel belum tersedia di server untuk diunduh (mungkin sudah di-reset).")
+
