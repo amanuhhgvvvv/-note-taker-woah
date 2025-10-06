@@ -3,6 +3,7 @@ import pandas as pd
 from pathlib import Path
 import os 
 import numpy as np 
+import io # Diperlukan untuk menyimpan file Excel di memori
 
 # ----------------------------
 # Konfigurasi / Nama file
@@ -22,7 +23,6 @@ SHEET_NAMES = [
     "Silika",
     "Kondensor PLTU"
 ]
-# HANYA PH DAN DEBIT
 COLUMNS = ["tanggal", "pH", "debit", "ph_rata_rata_bulan", "debit_rata_rata_bulan"]
 
 st.set_page_config(page_title="Pencatatan pH & Debit Air", layout="centered")
@@ -68,9 +68,110 @@ def save_all_sheets(dfs: dict, path: Path):
             df.to_excel(writer, sheet_name=sheet, index=False)
 
 # ----------------------------
-# Form input
+# FUNGSI BARU: MEMBUAT FILE EXCEL UNTUK DOWNLOAD DENGAN FORMAT PIVOT
 # ----------------------------
-st.markdown("Isi data pengukuran di bawah ini:")
+def create_pivot_data(df_raw, lokasi):
+    """Memproses DataFrame mentah menjadi format pivot bulanan."""
+    
+    # 1. Pisahkan Data Harian dan Rata-rata
+    df_data_rows = df_raw[~df_raw["tanggal"].astype(str).str.startswith('Rata-rata', na=False)].copy()
+    df_avg_rows = df_raw[df_raw["tanggal"].astype(str).str.startswith('Rata-rata', na=False)].copy()
+
+    df_data_rows['tanggal_dt'] = pd.to_datetime(df_data_rows['tanggal'], errors='coerce')
+    df_data_rows = df_data_rows.dropna(subset=['tanggal_dt'])
+
+    if df_data_rows.empty:
+        return None, None
+    
+    df_data_rows['TahunBulan'] = df_data_rows['tanggal_dt'].dt.strftime('%Y-%m')
+    df_data_rows['Hari'] = df_data_rows['tanggal_dt'].dt.day
+    
+    pivot_sheets = {}
+    
+    # Kelompokkan data berdasarkan Bulan/Tahun
+    for (tahun_bulan, df_group) in df_data_rows.groupby('TahunBulan'):
+        
+        selected_month = df_group['tanggal_dt'].dt.month.iloc[0]
+        selected_year = df_group['tanggal_dt'].dt.year.iloc[0]
+        sheet_name = f"{lokasi} - {tahun_bulan}"
+
+        # Lakukan Operasi Pivot
+        df_pivot_data = df_group[['Hari', 'pH', 'debit']]
+        
+        df_pivot = pd.melt(
+            df_pivot_data, 
+            id_vars=['Hari'], 
+            value_vars=['pH', 'debit'], 
+            var_name='Parameter', 
+            value_name='Nilai'
+        )
+        
+        df_pivot = df_pivot.pivot(
+            index='Parameter', 
+            columns='Hari', 
+            values='Nilai'
+        )
+        
+        # Tambahkan Rata-rata Bulanan
+        avg_row = df_avg_rows[
+            df_avg_rows['tanggal'].astype(str).str.contains(f"{selected_month:02d}/{selected_year}", na=False)
+        ]
+
+        if not avg_row.empty:
+            ph_avg = avg_row['ph_rata_rata_bulan'].iloc[0]
+            debit_avg = avg_row['debit_rata_rata_bulan'].iloc[0]
+
+            rata_rata_series = pd.Series(
+                data=[ph_avg, debit_avg], 
+                index=['pH', 'debit'], 
+                name='Rata-rata'
+            )
+            df_pivot['Rata-rata'] = rata_rata_series 
+        else:
+             df_pivot['Rata-rata'] = np.nan
+        
+        # Finalisasi (Rename baris dan kolom)
+        df_pivot = df_pivot.rename(index={'pH': 'pH', 'debit': 'Debit (l/d)'})
+        df_pivot = df_pivot.reindex(['pH', 'Debit (l/d)'])
+        
+        # Ganti nama kolom index (Parameter) menjadi kosong
+        df_pivot.index.name = None 
+        
+        # Sisipkan data pivot ke dalam dictionary
+        pivot_sheets[sheet_name] = df_pivot
+        
+    return pivot_sheets
+
+def create_excel_with_pivot_sheets(all_raw_sheets):
+    """Membuat file Excel di memori dengan sheet mentah dan sheet pivot."""
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        
+        # 1. Tulis sheet data mentah (raw data)
+        for sheet_name, df_raw in all_raw_sheets.items():
+             # Pastikan hanya kolom yang ditentukan yang disimpan dan urutannya benar
+            df_raw.reindex(columns=COLUMNS).to_excel(writer, sheet_name=f"RAW - {sheet_name}", index=False)
+
+        # 2. Tulis sheet data pivot (format bulanan)
+        for lokasi in SHEET_NAMES:
+            df_raw = all_raw_sheets.get(lokasi)
+            if df_raw is not None:
+                pivot_data = create_pivot_data(df_raw, lokasi)
+                if pivot_data:
+                    for sheet_name, df_pivot in pivot_data.items():
+                         # Tambahkan baris header di atas tabel pivot
+                        header_df = pd.DataFrame({sheet_name: [f"Data Bulanan {lokasi}"]}).T
+                        header_df.to_excel(writer, sheet_name=sheet_name, index=True, header=False, startrow=0)
+                        
+                        # Tulis tabel pivot
+                        df_pivot.to_excel(writer, sheet_name=sheet_name, startrow=2, index=True)
+                        
+    return output.getvalue()
+
+# ----------------------------
+# Form input (sama seperti sebelumnya)
+# ----------------------------
+# ... (kode input sama) ...
 
 if 'lokasi' not in st.session_state:
     st.session_state['lokasi'] = SHEET_NAMES[0]
@@ -79,7 +180,6 @@ tanggal = st.date_input("Tanggal pengukuran:", pd.Timestamp.now())
 lokasi = st.selectbox("Lokasi pengukuran:", SHEET_NAMES, index=SHEET_NAMES.index(st.session_state['lokasi']))
 st.session_state['lokasi'] = lokasi
 
-# HANYA PH DAN DEBIT
 col_ph, col_debit = st.columns(2)
 with col_ph:
     ph = st.number_input("pH (0.0 - 14.0)", min_value=0.0, max_value=14.0, value=7.0, format="%.3f")
@@ -88,7 +188,6 @@ with col_debit:
 
 
 if st.button("Simpan data"):
-    # Clear cache sebelum membaca data
     read_all_sheets.clear() 
     all_sheets = read_all_sheets(EXCEL_PATH)
     df_loc = all_sheets.get(lokasi, pd.DataFrame(columns=COLUMNS))
@@ -96,14 +195,11 @@ if st.button("Simpan data"):
     # --- PERBAIKAN: Hapus entri lama dengan tanggal yang sama (harian) ---
     tanggal_input_str = tanggal.strftime('%Y-%m-%d')
 
-    # Pisahkan data harian dari baris rata-rata
     df_data_only = df_loc[~df_loc["tanggal"].astype(str).str.startswith('Rata-rata', na=False)].copy()
     
-    # Filter data harian yang TIDAK sama dengan tanggal input (untuk menghindari duplikasi harian)
     df_data_only['tanggal_date'] = df_data_only["tanggal"].astype(str).str.split(' ').str[0]
     df_data_only = df_data_only[df_data_only['tanggal_date'] != tanggal_input_str].drop(columns=['tanggal_date']).copy()
 
-    # tambahkan data harian baru
     new_row = {
         "tanggal": tanggal.strftime('%Y-%m-%d %H:%M:%S'), 
         "pH": float(ph),
@@ -112,7 +208,6 @@ if st.button("Simpan data"):
         "debit_rata_rata_bulan": None
     }
     
-    # Gabungkan: Data harian yang sudah difilter + Data harian yang baru
     df_loc_with_new_data = pd.concat([df_data_only, pd.DataFrame([new_row])], ignore_index=True)
 
 
@@ -122,14 +217,12 @@ if st.button("Simpan data"):
     df_hitung_rata["tanggal_dt"] = pd.to_datetime(df_hitung_rata["tanggal"], errors="coerce")
     df_hitung_rata = df_hitung_rata.dropna(subset=['tanggal_dt']) 
     
-    # Inisialisasi DataFrame akhir dengan data harian yang sudah diperbarui
     df_final = df_loc_with_new_data.copy()
 
     if not df_hitung_rata.empty:
         df_hitung_rata["bulan"] = df_hitung_rata["tanggal_dt"].dt.month.astype(int)
         df_hitung_rata["tahun"] = df_hitung_rata["tanggal_dt"].dt.year.astype(int)
     
-        # Hitung rata-rata bulanan
         avg_df = (
             df_hitung_rata.groupby(["tahun", "bulan"], as_index=False)
             .agg(
@@ -139,7 +232,6 @@ if st.button("Simpan data"):
             .round(3)
         )
             
-        # Tambahkan baris rata-rata tiap bulan ke df_final
         for _, row in avg_df.iterrows():
             bulan_int = int(row['bulan'])
             tahun_int = int(row['tahun'])
@@ -151,10 +243,9 @@ if st.button("Simpan data"):
                 "ph_rata_rata_bulan": row["ph_rata_rata_bulan"],
                 "debit_rata_rata_bulan": row["debit_rata_rata_bulan"]
             }
-            # Tambahkan baris rata-rata
             df_final = pd.concat([df_final, pd.DataFrame([rata_row])], ignore_index=True)
         
-    df_loc = df_final # Update DataFrame yang akan disimpan
+    df_loc = df_final 
 
     all_sheets[lokasi] = df_loc
     save_all_sheets(all_sheets, EXCEL_PATH)
@@ -163,8 +254,10 @@ if st.button("Simpan data"):
     st.rerun() 
 
 # ----------------------------
-# Preview data dalam format Pivot Bulanan
+# Preview data (sama seperti sebelumnya)
 # ----------------------------
+# ... (kode preview data sama) ...
+
 st.markdown("---")
 st.subheader("Preview Data Lokasi Aktif (Format Bulanan)")
 st.info("Pilih bulan dan tahun di bawah untuk melihat data dalam format tabel harian.")
@@ -174,7 +267,6 @@ try:
     all_sheets = read_all_sheets(EXCEL_PATH)
     df_raw = all_sheets.get(lokasi, pd.DataFrame(columns=COLUMNS))
     
-    # 1. Filter dan Siapkan Data Harian
     df_data_rows = df_raw[~df_raw["tanggal"].astype(str).str.startswith('Rata-rata', na=False)].copy()
     df_avg_rows = df_raw[df_raw["tanggal"].astype(str).str.startswith('Rata-rata', na=False)].copy()
 
@@ -184,25 +276,21 @@ try:
     if df_data_rows.empty:
         st.info(f"Belum ada data valid untuk lokasi '{lokasi}'.")
     else:
-        # Tambahkan kolom Bulan, Tahun, dan Hari
         df_data_rows['Tahun'] = df_data_rows['tanggal_dt'].dt.year
         df_data_rows['Bulan'] = df_data_rows['tanggal_dt'].dt.month
         df_data_rows['Hari'] = df_data_rows['tanggal_dt'].dt.day
         
-        # Ambil daftar unik Bulan dan Tahun untuk filter
         bulan_tahun = (
             df_data_rows[['Bulan', 'Tahun']]
             .drop_duplicates()
             .sort_values(by=['Tahun', 'Bulan'], ascending=False)
         )
         
-        # Buat string format "Nama Bulan Tahun"
         bulan_tahun['Display'] = bulan_tahun.apply(
             lambda row: pd.to_datetime(f"{row['Tahun']}-{row['Bulan']}-01").strftime("%B %Y"), 
             axis=1
         )
         
-        # --- Filter Bulan/Tahun ---
         bulan_options = bulan_tahun['Display'].tolist()
         selected_display = st.selectbox("Pilih Bulan dan Tahun:", options=bulan_options)
         
@@ -210,14 +298,11 @@ try:
         selected_month = selected_row['Bulan']
         selected_year = selected_row['Tahun']
         
-        # Filter data berdasarkan pilihan
         df_filtered = df_data_rows[
             (df_data_rows['Bulan'] == selected_month) & 
             (df_data_rows['Tahun'] == selected_year)
         ]
 
-        # 2. Lakukan Operasi Pivot (Transformasi Data)
-        
         df_pivot_data = df_filtered[['Hari', 'pH', 'debit']]
         
         df_pivot = pd.melt(
@@ -234,8 +319,6 @@ try:
             values='Nilai'
         )
         
-        # 3. Tambahkan Rata-rata Bulanan (Kolom terakhir)
-        
         avg_row = df_avg_rows[
             df_avg_rows['tanggal'].astype(str).str.contains(f"{selected_month:02d}/{selected_year}", na=False)
         ]
@@ -249,60 +332,50 @@ try:
                 index=['pH', 'debit'], 
                 name='Rata-rata'
             )
-            
             df_pivot['Rata-rata'] = rata_rata_series 
         else:
              df_pivot['Rata-rata'] = np.nan
         
-        # 4. Finalisasi Tampilan
-        
-        # 👇👇👇 PERUBAHAN UTAMA DI SINI 👇👇👇
-        
-        # 1. Ganti label Index utama menjadi nama lokasi (misal: Power Plant)
         df_pivot.index.name = lokasi 
         
-        # 2. Hapus kolom Satuan
-        # Kita tidak perlu lagi menggunakan df_pivot.insert(0, 'Satuan', ['pH', 'l/d'])
-        
-        # 3. Ganti nama Index 'pH' dan 'debit' di baris menjadi 'pH' dan 'Debit (l/d)'
-        # Jika Anda ingin tetap menampilkan satuannya, Anda bisa ganti indexnya:
         df_pivot = df_pivot.rename(index={'pH': 'pH', 'debit': 'Debit (l/d)'})
-        
-        # Urutkan baris
         df_pivot = df_pivot.reindex(['pH', 'Debit (l/d)'])
-
-        # Atur format tampilan agar lebih rapi (misalnya, 3 angka di belakang koma)
-        # Terapkan hanya pada kolom angka (Hari 1, 2, 3... dan Rata-rata)
-        numeric_cols = [col for col in df_pivot.columns if isinstance(col, (int, str)) and col not in ['Satuan']]
-        formatters = {col: '%.3f' for col in numeric_cols}
         
-        st.dataframe(df_pivot, use_container_width=True)
+        # Penyesuaian tampilan untuk Streamlit
+        df_pivot_display = df_pivot.reset_index()
+        df_pivot_display.columns.values[0] = ""
+        df_pivot_display = df_pivot_display.set_index("")
+
+        st.dataframe(df_pivot_display, use_container_width=True)
 
 except Exception as e:
-    # Mengatasi potensi error saat dataframe kosong setelah filter
     if "cannot reshape" in str(e):
         st.error(f"Gagal memproses data: Ada duplikasi data harian pada bulan yang dipilih. Silakan periksa entri data.")
     else:
         st.error(f"Gagal memproses data atau menampilkan format bulanan: {e}")
 
 # ----------------------------
-# Tombol download file Excel gabungan + LOGIKA HAPUS DATA (DIPISAHKAN)
+# Tombol download file Excel gabungan (DIUBAH UNTUK FORMAT PIVOT)
 # ----------------------------
 st.markdown("---")
 st.subheader("Pengelolaan File Excel")
-st.info("File disimpan di server sebagai `ph_debit_data_pivot.xlsx`. Unduh data sebelum Anda mereset.")
+st.info("File yang diunduh sekarang berisi sheet data mentah dan sheet ringkasan bulanan berformat tabel.")
 
-if EXCEL_PATH.exists():
-    with open(EXCEL_PATH, "rb") as f:
-        data_bytes = f.read()
+# Membaca semua sheet yang disimpan (termasuk data harian dan rata-rata)
+all_raw_sheets = read_all_sheets(EXCEL_PATH)
+
+if EXCEL_PATH.exists() and all_raw_sheets:
+    
+    # 💥 Menggunakan FUNGSI BARU untuk membuat file Excel dengan format pivot
+    excel_data_for_download = create_excel_with_pivot_sheets(all_raw_sheets)
     
     col1, col2 = st.columns(2)
 
     with col1:
         st.download_button(
-            label="⬇️ Download File Excel (Semua Lokasi)",
-            data=data_bytes,
-            file_name="ph_debit_data_pivot.xlsx",
+            label="⬇️ Download File Excel (Ringkasan Format Tabel)",
+            data=excel_data_for_download, # Menggunakan data yang sudah diolah
+            file_name="ph_debit_ringkasan_bulanan.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
 
