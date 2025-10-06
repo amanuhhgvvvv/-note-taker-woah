@@ -88,12 +88,20 @@ with col_debit:
 
 
 if st.button("Simpan data"):
+    # Clear cache sebelum membaca data
     read_all_sheets.clear() 
     all_sheets = read_all_sheets(EXCEL_PATH)
     df_loc = all_sheets.get(lokasi, pd.DataFrame(columns=COLUMNS))
 
-    # Hapus baris rata-rata lama sebelum menambahkan data baru
-    df_loc_data_only = df_loc[~df_loc["tanggal"].astype(str).str.startswith('Rata-rata', na=False)].copy()
+    # --- 🛠️ PERBAIKAN: Hapus entri lama dengan tanggal yang sama (harian) ---
+    tanggal_input_str = tanggal.strftime('%Y-%m-%d')
+
+    # Pisahkan data harian dari baris rata-rata
+    df_data_only = df_loc[~df_loc["tanggal"].astype(str).str.startswith('Rata-rata', na=False)].copy()
+    
+    # Filter data harian yang TIDAK sama dengan tanggal input (untuk menghindari duplikasi harian)
+    df_data_only['tanggal_date'] = df_data_only["tanggal"].astype(str).str.split(' ').str[0]
+    df_data_only = df_data_only[df_data_only['tanggal_date'] != tanggal_input_str].drop(columns=['tanggal_date']).copy()
 
     # tambahkan data harian baru
     new_row = {
@@ -103,24 +111,27 @@ if st.button("Simpan data"):
         "ph_rata_rata_bulan": None,
         "debit_rata_rata_bulan": None
     }
-    df_loc = pd.concat([df_loc_data_only, pd.DataFrame([new_row])], ignore_index=True)
+    
+    # Gabungkan: Data harian yang sudah difilter + Data harian yang baru
+    df_loc_with_new_data = pd.concat([df_data_only, pd.DataFrame([new_row])], ignore_index=True)
 
 
-    # ---- Hitung rata-rata bulanan ----
-    df_data = df_loc[~df_loc["tanggal"].astype(str).str.startswith('Rata-rata', na=False)].copy()
+    # ---- Hitung dan Tambahkan Rata-rata Bulanan (HANYA satu baris per bulan) ----
     
-    df_data["tanggal_dt"] = pd.to_datetime(df_data["tanggal"], errors="coerce")
-    df_data = df_data.dropna(subset=['tanggal_dt']) 
+    df_hitung_rata = df_loc_with_new_data.copy()
+    df_hitung_rata["tanggal_dt"] = pd.to_datetime(df_hitung_rata["tanggal"], errors="coerce")
+    df_hitung_rata = df_hitung_rata.dropna(subset=['tanggal_dt']) 
     
-    df_loc_new = df_data.drop(columns=['tanggal_dt'])[COLUMNS].copy()
+    # Inisialisasi DataFrame akhir dengan data harian yang sudah diperbarui
+    df_final = df_loc_with_new_data.copy()
 
-    if not df_data.empty:
-        df_data["bulan"] = df_data["tanggal_dt"].dt.month.astype(int)
-        df_data["tahun"] = df_data["tanggal_dt"].dt.year.astype(int)
+    if not df_hitung_rata.empty:
+        df_hitung_rata["bulan"] = df_hitung_rata["tanggal_dt"].dt.month.astype(int)
+        df_hitung_rata["tahun"] = df_hitung_rata["tanggal_dt"].dt.year.astype(int)
     
-        # Hitung rata-rata untuk pH dan Debit
+        # Hitung rata-rata bulanan
         avg_df = (
-            df_data.groupby(["tahun", "bulan"], as_index=False)
+            df_hitung_rata.groupby(["tahun", "bulan"], as_index=False)
             .agg(
                 ph_rata_rata_bulan=('pH', 'mean'),
                 debit_rata_rata_bulan=('debit', 'mean') 
@@ -128,26 +139,28 @@ if st.button("Simpan data"):
             .round(3)
         )
             
-        # Tambahkan baris rata-rata tiap bulan
+        # Tambahkan baris rata-rata tiap bulan ke df_final
         for _, row in avg_df.iterrows():
             bulan_int = int(row['bulan'])
             tahun_int = int(row['tahun'])
             
             rata_row = {
-                "tanggal": f"Rata-rata {bulan_int:02d}/{tahun_int}",
+                # Format tanggal rata-rata sebagai string
+                "tanggal": f"Rata-rata {bulan_int:02d}/{tahun_int}", 
                 "pH": None,
                 "debit": None,
                 "ph_rata_rata_bulan": row["ph_rata_rata_bulan"],
                 "debit_rata_rata_bulan": row["debit_rata_rata_bulan"]
             }
-            df_loc_new = pd.concat([df_loc_new, pd.DataFrame([rata_row])], ignore_index=True)
+            # Tambahkan baris rata-rata
+            df_final = pd.concat([df_final, pd.DataFrame([rata_row])], ignore_index=True)
         
-    df_loc = df_loc_new
+    df_loc = df_final # Update DataFrame yang akan disimpan
 
     all_sheets[lokasi] = df_loc
     save_all_sheets(all_sheets, EXCEL_PATH)
 
-    st.success(f"Data tersimpan di sheet '{lokasi}' — tanggal {tanggal.strftime('%Y-%m-%d')}")
+    st.success(f"Data tersimpan di sheet '{lokasi}' — tanggal {tanggal.strftime('%Y-%m-%d')}. Data rata-rata diperbarui.")
     st.rerun() 
 
 # ----------------------------
@@ -163,7 +176,10 @@ try:
     df_raw = all_sheets.get(lokasi, pd.DataFrame(columns=COLUMNS))
     
     # 1. Filter dan Siapkan Data Harian
+    # Ambil HANYA baris data harian (yang tidak dimulai dengan "Rata-rata")
     df_data_rows = df_raw[~df_raw["tanggal"].astype(str).str.startswith('Rata-rata', na=False)].copy()
+    
+    # Ambil HANYA baris rata-rata
     df_avg_rows = df_raw[df_raw["tanggal"].astype(str).str.startswith('Rata-rata', na=False)].copy()
 
     df_data_rows['tanggal_dt'] = pd.to_datetime(df_data_rows['tanggal'], errors='coerce')
@@ -184,7 +200,7 @@ try:
             .sort_values(by=['Tahun', 'Bulan'], ascending=False)
         )
         
-        # BARIS 189: PASTIKAN KURUNG KURAWAL TERTUTUP DENGAN BENAR
+        # Buat string format "Nama Bulan Tahun"
         bulan_tahun['Display'] = bulan_tahun.apply(
             lambda row: pd.to_datetime(f"{row['Tahun']}-{row['Bulan']}-01").strftime("%B %Y"), 
             axis=1
@@ -192,7 +208,6 @@ try:
         
         # --- Filter Bulan/Tahun ---
         bulan_options = bulan_tahun['Display'].tolist()
-        # Selalu tampilkan bulan terbaru sebagai default
         selected_display = st.selectbox("Pilih Bulan dan Tahun:", options=bulan_options)
         
         selected_row = bulan_tahun[bulan_tahun['Display'] == selected_display].iloc[0]
@@ -214,7 +229,7 @@ try:
         df_pivot = pd.melt(
             df_pivot_data, 
             id_vars=['Hari'], 
-            value_vars=['pH', 'debit'], # Hanya pH dan Debit
+            value_vars=['pH', 'debit'], 
             var_name='Parameter', 
             value_name='Nilai'
         )
@@ -227,7 +242,7 @@ try:
         
         # 3. Tambahkan Rata-rata Bulanan (Kolom terakhir)
         
-        # Ambil rata-rata untuk bulan/tahun yang dipilih
+        # Ambil rata-rata untuk bulan/tahun yang dipilih dari df_avg_rows
         avg_row = df_avg_rows[
             df_avg_rows['tanggal'].astype(str).str.contains(f"{selected_month:02d}/{selected_year}", na=False)
         ]
@@ -260,7 +275,11 @@ try:
         st.dataframe(df_pivot, use_container_width=True)
 
 except Exception as e:
-    st.error(f"Gagal memproses data atau menampilkan format bulanan: {e}")
+    # Mengatasi potensi error saat dataframe kosong setelah filter
+    if "cannot reshape" in str(e):
+        st.error(f"Gagal memproses data: Ada duplikasi data harian pada bulan yang dipilih. Silakan periksa entri data.")
+    else:
+        st.error(f"Gagal memproses data atau menampilkan format bulanan: {e}")
 
 # ----------------------------
 # Tombol download file Excel gabungan + LOGIKA HAPUS DATA (DIPISAHKAN)
