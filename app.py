@@ -5,10 +5,6 @@ import os
 import numpy as np 
 import io 
 import xlsxwriter # <-- Tambahan: Diperlukan untuk utilitas kolom di download
-
-# ----------------------------
-# Konfigurasi / Nama file
-# ----------------------------
 EXCEL_PATH = Path("ph_debit_data_pivot.xlsx") 
 SHEET_NAMES = [
     "Power Plant",
@@ -24,15 +20,10 @@ SHEET_NAMES = [
     "Silika",
     "Kondensor PLTU"
 ]
-# Kolom HANYA pH dan Debit
 COLUMNS = ["tanggal", "pH", "debit", "ph_rata_rata_bulan", "debit_rata_rata_bulan"] 
 
 st.set_page_config(page_title="Pencatatan pH & Debit Air", layout="centered")
 st.title("📊 Pencatatan pH dan Debit Air")
-
-# ----------------------------
-# Inisialisasi file Excel
-# ----------------------------
 def initialize_excel(path: Path):
     """Memastikan file Excel dan semua sheet yang dibutuhkan ada."""
     if not path.exists():
@@ -53,10 +44,6 @@ def initialize_excel(path: Path):
                     df.to_excel(writer, sheet_name=sheet, index=False)
 
 initialize_excel(EXCEL_PATH)
-
-# ----------------------------
-# Utility: baca & simpan sheet
-# ----------------------------
 @st.cache_data 
 def read_all_sheets(path: Path):
     """Membaca semua sheet dari file Excel dengan 'tanggal' sebagai string."""
@@ -80,8 +67,6 @@ def create_pivot_data(df_raw, lokasi):
 
     if df_data_rows.empty:
         return None 
-    
-    # BARIS INI DIPASTIKAN BENAR (PERBAIKAN SyntaxError)
     df_data_rows['TahunBulan'] = df_data_rows['tanggal_dt'].dt.strftime('%Y-%m')
     df_data_rows['Hari'] = df_data_rows['tanggal_dt'].dt.day
     
@@ -129,7 +114,6 @@ def create_pivot_data(df_raw, lokasi):
         df_pivot = df_pivot.rename(index={'pH': 'pH', 'debit': 'Debit (l/d)'})
         df_pivot = df_pivot.reindex(['pH', 'Debit (l/d)']) 
         
-        # Tambahkan kolom KETERANGAN di bagian paling kanan
         df_pivot['KETERANGAN'] = '' 
         
         df_pivot.index.name = None 
@@ -143,15 +127,11 @@ def create_excel_with_pivot_sheets(all_raw_sheets):
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
         
-        # 1. Dapatkan objek workbook dan definisikan format border
         workbook = writer.book
-        # Definisi format border penuh (1) dan perataan
         border_format = workbook.add_format({'border': 1, 'align': 'center', 'valign': 'vcenter'}) 
         
-        # Format untuk header baris (kolom A), border + rata kiri + bold
         header_format = workbook.add_format({'border': 1, 'align': 'left', 'valign': 'vcenter', 'bold': True})
         
-        # Format untuk judul yang digabungkan
         merge_format = workbook.add_format({
             'bold': 1,
             'align': 'center',
@@ -167,27 +147,16 @@ def create_excel_with_pivot_sheets(all_raw_sheets):
                 if pivot_data: 
                     for sheet_name, df_pivot in pivot_data.items():
                          
-                        # Dapatkan objek worksheet yang baru dibuat
                         worksheet = workbook.add_worksheet(sheet_name)
                         
-                        # --- Tulis Header Utama (Start A1) ---
-                        # REVISI INI: Menggunakan xlsxwriter.utility.xl_col_to_name (Perbaikan AttributeError)
                         last_col_letter = xlsxwriter.utility.xl_col_to_name(len(df_pivot.columns))
                         
                         worksheet.merge_range(f'A1:{last_col_letter}1', f"Data Bulanan {lokasi}", merge_format)
 
-                        # --- Tulis Header Kolom (Hari, Rata-rata, KETERANGAN) ---
-                        # Dimulai dari sel B2 (kolom ke-2, baris ke-2)
                         col_headers = list(df_pivot.columns)
                         worksheet.write_row('B2', col_headers, border_format) 
-
-                        # --- Tulis Index Baris (pH, Debit (l/d)) ---
-                        # Dimulai dari sel A3
                         row_headers = list(df_pivot.index)
                         worksheet.write_column('A3', row_headers, header_format)
-
-                        # --- Tulis Data dan Border ---
-                        # Tulis DataFrame data mulai dari B3
                         data_to_write = df_pivot.values.tolist()
                         
                         start_row = 2 # Baris ke-3 (indeks 2)
@@ -198,15 +167,11 @@ def create_excel_with_pivot_sheets(all_raw_sheets):
                             processed_data = ["" if pd.isna(item) else item for item in row_data]
                             worksheet.write_row(start_row + row_num, start_col, processed_data, border_format)
                             
-                        # Atur lebar kolom agar terlihat rapi
                         worksheet.set_column('A:A', 15) 
                         worksheet.set_column('B:Z', 8) 
                         
     return output.getvalue()
 
-# ----------------------------
-# Form input 
-# ----------------------------
 if 'lokasi' not in st.session_state:
     st.session_state['lokasi'] = SHEET_NAMES[0]
 
@@ -226,7 +191,6 @@ if st.button("Simpan data"):
     all_sheets = read_all_sheets(EXCEL_PATH) 
     df_loc = all_sheets.get(lokasi, pd.DataFrame(columns=COLUMNS))
 
-    # --- Hapus entri lama dengan tanggal yang sama (harian) ---
     tanggal_input_str = tanggal.strftime('%Y-%m-%d')
 
     df_data_only = df_loc[~df_loc["tanggal"].astype(str).str.startswith('Rata-rata', na=False)].copy()
@@ -286,9 +250,6 @@ if st.button("Simpan data"):
     st.success(f"Data tersimpan di sheet '{lokasi}' — tanggal {tanggal.strftime('%Y-%m-%d')}. Data rata-rata diperbarui.")
     st.rerun() 
 
-# ----------------------------
-# Preview data
-# ----------------------------
 st.markdown("---")
 st.subheader("Preview Data Lokasi Aktif (Format Bulanan)")
 st.info("Pilih bulan dan tahun di bawah untuk melihat data dalam format tabel harian.")
@@ -376,10 +337,8 @@ try:
             df_pivot = df_pivot.rename(index={'pH': 'pH', 'debit': 'Debit (l/d)'})
             df_pivot = df_pivot.reindex(['pH', 'Debit (l/d)']) 
             
-            # Tambahkan kolom KETERANGAN untuk preview 
             df_pivot['KETERANGAN'] = '' 
-            
-            # Penyesuaian tampilan untuk Streamlit
+        
             df_pivot_display = df_pivot.reset_index()
             df_pivot_display.columns.values[0] = ""
             df_pivot_display = df_pivot_display.set_index("")
@@ -392,9 +351,6 @@ except Exception as e:
     else:
         st.error(f"Gagal memproses data atau menampilkan format bulanan: {e}")
 
-# ----------------------------
-# Tombol download file Excel gabungan
-# ----------------------------
 st.markdown("---")
 st.subheader("Pengelolaan File Excel")
 st.info("File yang diunduh hanya berisi sheet ringkasan bulanan berformat tabel dengan garis kotak (border).")
@@ -431,4 +387,5 @@ if EXCEL_PATH.exists() and all_raw_sheets:
 
 else:
     st.warning("File Excel belum tersedia di server untuk diunduh (mungkin sudah di-reset).")
+
 
