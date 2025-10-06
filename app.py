@@ -6,6 +6,25 @@ import numpy as np
 import io 
 
 # ----------------------------
+# Fungsi Utility untuk Konversi Kolom
+# ----------------------------
+def get_column_letter(col_idx):
+    """Mengkonversi indeks kolom (0-based) menjadi huruf kolom Excel (A, B, C...)."""
+    # Karena tabel pivot dimulai dari kolom B (indeks 1), kita harus menghitung kolom terakhir
+    # Index 0 = A, Index 1 = B, dst.
+    
+    # Total kolom data = 1 (Parameter/Index) + len(df_pivot.columns)
+    # Jika df_pivot punya 5 kolom (1, 2, 3, Rata-rata, KETERANGAN), total kolom adalah 6 (A s/d F)
+    
+    col_idx += 1 # Konversi ke 1-based index (1=A, 2=B)
+    
+    letter = ''
+    while col_idx > 0:
+        col_idx, remainder = divmod(col_idx - 1, 26)
+        letter = chr(65 + remainder) + letter
+    return letter
+
+# ----------------------------
 # Konfigurasi / Nama file
 # ----------------------------
 EXCEL_PATH = Path("ph_debit_data_pivot.xlsx") 
@@ -172,8 +191,10 @@ def create_excel_with_pivot_sheets(all_raw_sheets):
                         worksheet = workbook.add_worksheet(sheet_name)
                         
                         # --- Tulis Header Utama (Start A1) ---
-                        # Tentukan rentang sel untuk merge, misalnya A1 sampai kolom terakhir
-                        last_col_letter = pd.io.excel.xlwt._get_col_string(len(df_pivot.columns))
+                        # Tentukan rentang sel untuk merge: Jumlah kolom = 1 (index) + df_pivot.columns
+                        total_columns = len(df_pivot.columns)
+                        last_col_letter = get_column_letter(total_columns) # Ganti dengan fungsi utilitas baru
+                        
                         worksheet.merge_range(f'A1:{last_col_letter}1', f"Data Bulanan {lokasi}", merge_format)
 
                         # --- Tulis Header Kolom (Hari, Rata-rata, KETERANGAN) ---
@@ -200,6 +221,7 @@ def create_excel_with_pivot_sheets(all_raw_sheets):
                             
                         # Atur lebar kolom agar terlihat rapi
                         worksheet.set_column('A:A', 15) 
+                        # Asumsi kolom B sampai Z sudah cukup untuk hari 1-31 dan Rata-rata/Keterangan
                         worksheet.set_column('B:Z', 8) 
                         
     return output.getvalue()
@@ -231,203 +253,4 @@ if st.button("Simpan data"):
 
     df_data_only = df_loc[~df_loc["tanggal"].astype(str).str.startswith('Rata-rata', na=False)].copy()
     
-    df_data_only['tanggal_date'] = df_data_only["tanggal"].astype(str).str.split(' ').str[0]
-    df_data_only = df_data_only[df_data_only['tanggal_date'] != tanggal_input_str].drop(columns=['tanggal_date']).copy()
-
-    new_row = {
-        "tanggal": tanggal.strftime('%Y-%m-%d %H:%M:%S'), 
-        "pH": float(ph),
-        "debit": float(debit),
-        "ph_rata_rata_bulan": None,
-        "debit_rata_rata_bulan": None
-    }
-    
-    df_loc_with_new_data = pd.concat([df_data_only, pd.DataFrame([new_row])], ignore_index=True)
-
-
-    # ---- Hitung dan Tambahkan Rata-rata Bulanan ----
-    
-    df_hitung_rata = df_loc_with_new_data.copy()
-    df_hitung_rata["tanggal_dt"] = pd.to_datetime(df_hitung_rata["tanggal"], errors="coerce")
-    df_hitung_rata = df_hitung_rata.dropna(subset=['tanggal_dt']) 
-    
-    df_final = df_loc_with_new_data.copy()
-
-    if not df_hitung_rata.empty:
-        df_hitung_rata["bulan"] = df_hitung_rata["tanggal_dt"].dt.month.astype(int)
-        df_hitung_rata["tahun"] = df_hitung_rata["tanggal_dt"].dt.year.astype(int)
-    
-        avg_df = (
-            df_hitung_rata.groupby(["tahun", "bulan"], as_index=False)
-            .agg(
-                ph_rata_rata_bulan=('pH', 'mean'),
-                debit_rata_rata_bulan=('debit', 'mean')
-            )
-            .round(3)
-        )
-            
-        for _, row in avg_df.iterrows():
-            bulan_int = int(row['bulan'])
-            tahun_int = int(row['tahun'])
-            
-            rata_row = {
-                "tanggal": f"Rata-rata {bulan_int:02d}/{tahun_int}", 
-                "pH": None,
-                "debit": None,
-                "ph_rata_rata_bulan": row["ph_rata_rata_bulan"],
-                "debit_rata_rata_bulan": row["debit_rata_rata_bulan"]
-            }
-            df_final = pd.concat([df_final, pd.DataFrame([rata_row])], ignore_index=True)
-        
-    df_loc = df_final 
-    all_sheets[lokasi] = df_loc
-    save_all_sheets(all_sheets, EXCEL_PATH)
-
-    st.success(f"Data tersimpan di sheet '{lokasi}' — tanggal {tanggal.strftime('%Y-%m-%d')}. Data rata-rata diperbarui.")
-    st.rerun() 
-
-# ----------------------------
-# Preview data
-# ----------------------------
-st.markdown("---")
-st.subheader("Preview Data Lokasi Aktif (Format Bulanan)")
-st.info("Pilih bulan dan tahun di bawah untuk melihat data dalam format tabel harian.")
-
-try:
-    read_all_sheets.clear()
-    all_sheets = read_all_sheets(EXCEL_PATH)
-    df_raw = all_sheets.get(lokasi, pd.DataFrame(columns=COLUMNS))
-    
-    df_data_rows = df_raw[~df_raw["tanggal"].astype(str).str.startswith('Rata-rata', na=False)].copy()
-    df_avg_rows = df_raw[df_raw["tanggal"].astype(str).str.startswith('Rata-rata', na=False)].copy()
-
-    df_data_rows['tanggal_dt'] = pd.to_datetime(df_data_rows['tanggal'], errors='coerce')
-    df_data_rows = df_data_rows.dropna(subset=['tanggal_dt'])
-    
-    if df_data_rows.empty:
-        st.info(f"Belum ada data valid untuk lokasi '{lokasi}'.")
-    else:
-        df_data_rows['Tahun'] = df_data_rows['tanggal_dt'].dt.year
-        df_data_rows['Bulan'] = df_data_rows['tanggal_dt'].dt.month
-        df_data_rows['Hari'] = df_data_rows['tanggal_dt'].dt.day
-        
-        bulan_tahun = (
-            df_data_rows[['Bulan', 'Tahun']]
-            .drop_duplicates()
-            .sort_values(by=['Tahun', 'Bulan'], ascending=False)
-        )
-        
-        bulan_tahun['Display'] = bulan_tahun.apply(
-            lambda row: pd.to_datetime(f"{row['Tahun']}-{row['Bulan']}-01").strftime("%B %Y"), 
-            axis=1
-        )
-        
-        bulan_options = bulan_tahun['Display'].tolist()
-        
-        if not bulan_options:
-            st.info(f"Tidak ada data harian yang tersedia untuk membuat preview bulanan.")
-        else:
-            selected_display = st.selectbox("Pilih Bulan dan Tahun:", options=bulan_options)
-            
-            selected_row = bulan_tahun[bulan_tahun['Display'] == selected_display].iloc[0]
-            selected_month = selected_row['Bulan']
-            selected_year = selected_row['Tahun']
-            
-            df_filtered = df_data_rows[
-                (df_data_rows['Bulan'] == selected_month) & 
-                (df_data_rows['Tahun'] == selected_year)
-            ]
-
-            df_pivot_data = df_filtered[['Hari', 'pH', 'debit']] 
-            
-            df_pivot = pd.melt(
-                df_pivot_data, 
-                id_vars=['Hari'], 
-                value_vars=['pH', 'debit'],
-                var_name='Parameter', 
-                value_name='Nilai'
-            )
-            
-            df_pivot = df_pivot.pivot(
-                index='Parameter', 
-                columns='Hari', 
-                values='Nilai'
-            )
-            
-            avg_row = df_avg_rows[
-                df_avg_rows['tanggal'].astype(str).str.contains(f"{selected_month:02d}/{selected_year}", na=False)
-            ]
-
-            if not avg_row.empty:
-                ph_avg = avg_row['ph_rata_rata_bulan'].iloc[0]
-                debit_avg = avg_row['debit_rata_rata_bulan'].iloc[0]
-
-                rata_rata_series = pd.Series(
-                    data=[ph_avg, debit_avg], 
-                    index=['pH', 'debit'], 
-                    name='Rata-rata'
-                )
-                df_pivot['Rata-rata'] = rata_rata_series 
-            else:
-                 df_pivot['Rata-rata'] = np.nan
-            
-            df_pivot.index.name = lokasi 
-            
-            df_pivot = df_pivot.rename(index={'pH': 'pH', 'debit': 'Debit (l/d)'})
-            df_pivot = df_pivot.reindex(['pH', 'Debit (l/d)']) 
-            
-            # Tambahkan kolom KETERANGAN untuk preview 
-            df_pivot['KETERANGAN'] = '' 
-            
-            # Penyesuaian tampilan untuk Streamlit
-            df_pivot_display = df_pivot.reset_index()
-            df_pivot_display.columns.values[0] = ""
-            df_pivot_display = df_pivot_display.set_index("")
-
-            st.dataframe(df_pivot_display, use_container_width=True)
-
-except Exception as e:
-    if "cannot reshape" in str(e):
-        st.error(f"Gagal memproses data: Ada duplikasi data harian pada bulan yang dipilih. Silakan periksa entri data.")
-    else:
-        st.error(f"Gagal memproses data atau menampilkan format bulanan: {e}")
-
-# ----------------------------
-# Tombol download file Excel gabungan
-# ----------------------------
-st.markdown("---")
-st.subheader("Pengelolaan File Excel")
-st.info("File yang diunduh hanya berisi sheet ringkasan bulanan berformat tabel dengan garis kotak (border).")
-
-all_raw_sheets = read_all_sheets(EXCEL_PATH)
-
-if EXCEL_PATH.exists() and all_raw_sheets:
-    
-    excel_data_for_download = create_excel_with_pivot_sheets(all_raw_sheets)
-    
-    col1, col2 = st.columns(2)
-
-    with col1:
-        st.download_button(
-            label="⬇️ Download File Excel (Ringkasan Format Tabel)",
-            data=excel_data_for_download, 
-            file_name="ph_debit_ringkasan_bulanan_bordered.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        )
-
-    with col2:
-        if st.button("🗑️ Reset Data di Server", help="Menghapus file Excel di server dan membuat ulang file kosong."):
-            try:
-                EXCEL_PATH.unlink() 
-                initialize_excel(EXCEL_PATH) 
-
-                read_all_sheets.clear() 
-                st.success("✅ File Excel telah **dihapus** dari server dan direset menjadi file kosong.")
-                
-                st.rerun() 
-                
-            except Exception as e:
-                st.error(f"Gagal menghapus dan mereset file Excel: {e}")
-
-else:
-    st.warning("File Excel belum tersedia di server untuk diunduh (mungkin sudah di-reset).")
+    df_data_only['tanggal_date'] = df_data_only["tanggal"].astype(str).str.split
