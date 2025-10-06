@@ -23,7 +23,7 @@ SHEET_NAMES = [
     "Silika",
     "Kondensor PLTU"
 ]
-# Kolom HANYA pH dan Debit (Suhu dihapus)
+# Kolom HANYA pH dan Debit
 COLUMNS = ["tanggal", "pH", "debit", "ph_rata_rata_bulan", "debit_rata_rata_bulan"] 
 
 st.set_page_config(page_title="Pencatatan pH & Debit Air", layout="centered")
@@ -70,12 +70,10 @@ def save_all_sheets(dfs: dict, path: Path):
 
 # ----------------------------------------------------
 # FUNGSI MEMBUAT FILE EXCEL UNTUK DOWNLOAD DENGAN FORMAT PIVOT
-# (Hanya pH & Debit, Ditambah Kolom Keterangan)
 # ----------------------------------------------------
 def create_pivot_data(df_raw, lokasi):
     """Memproses DataFrame mentah menjadi format pivot bulanan."""
     
-    # 1. Pisahkan Data Harian dan Rata-rata
     df_data_rows = df_raw[~df_raw["tanggal"].astype(str).str.startswith('Rata-rata', na=False)].copy()
     df_avg_rows = df_raw[df_raw["tanggal"].astype(str).str.startswith('Rata-rata', na=False)].copy()
 
@@ -90,14 +88,12 @@ def create_pivot_data(df_raw, lokasi):
     
     pivot_sheets = {}
     
-    # Kelompokkan data berdasarkan Bulan/Tahun
     for (tahun_bulan, df_group) in df_data_rows.groupby('TahunBulan'):
         
         selected_month = df_group['tanggal_dt'].dt.month.iloc[0]
         selected_year = df_group['tanggal_dt'].dt.year.iloc[0]
         sheet_name = f"{lokasi} - {tahun_bulan}"
 
-        # Lakukan Operasi Pivot (Hanya pH dan Debit)
         df_pivot_data = df_group[['Hari', 'pH', 'debit']] 
         
         df_pivot = pd.melt(
@@ -114,7 +110,6 @@ def create_pivot_data(df_raw, lokasi):
             values='Nilai'
         )
         
-        # Tambahkan Rata-rata Bulanan
         avg_row = df_avg_rows[
             df_avg_rows['tanggal'].astype(str).str.contains(f"{selected_month:02d}/{selected_year}", na=False)
         ]
@@ -132,15 +127,12 @@ def create_pivot_data(df_raw, lokasi):
         else:
              df_pivot['Rata-rata'] = np.nan
         
-        # Finalisasi (Rename baris dan kolom)
         df_pivot = df_pivot.rename(index={'pH': 'pH', 'debit': 'Debit (l/d)'})
-        # Atur urutan baris
         df_pivot = df_pivot.reindex(['pH', 'Debit (l/d)']) 
         
         # Tambahkan kolom KETERANGAN di bagian paling kanan
         df_pivot['KETERANGAN'] = '' 
         
-        # Ganti nama kolom index (Parameter) menjadi kosong
         df_pivot.index.name = None 
         
         pivot_sheets[sheet_name] = df_pivot
@@ -148,13 +140,13 @@ def create_pivot_data(df_raw, lokasi):
     return pivot_sheets
 
 def create_excel_with_pivot_sheets(all_raw_sheets):
-    """Membuat file Excel di memori dengan sheet mentah dan sheet pivot."""
+    """Hanya membuat sheet pivot, menghilangkan sheet RAW."""
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
         
-        # 1. Tulis sheet data mentah (raw data)
-        for sheet_name, df_raw in all_raw_sheets.items():
-            df_raw.reindex(columns=COLUMNS).to_excel(writer, sheet_name=f"RAW - {sheet_name}", index=False)
+        # HILANGKAN BAGIAN INI:
+        # for sheet_name, df_raw in all_raw_sheets.items():
+        #     df_raw.reindex(columns=COLUMNS).to_excel(writer, sheet_name=f"RAW - {sheet_name}", index=False)
 
         # 2. Tulis sheet data pivot (format bulanan)
         for lokasi in SHEET_NAMES:
@@ -164,11 +156,11 @@ def create_excel_with_pivot_sheets(all_raw_sheets):
                 
                 if pivot_data: 
                     for sheet_name, df_pivot in pivot_data.items():
-                         # Tambahkan baris header di atas tabel pivot
+                         # Tambahkan baris header 
                         header_df = pd.DataFrame({sheet_name: [f"Data Bulanan {lokasi}"]}).T
                         header_df.to_excel(writer, sheet_name=sheet_name, index=True, header=False, startrow=0)
                         
-                        # Tulis tabel pivot (Keterangan akan otomatis menjadi kolom terakhir)
+                        # Tulis tabel pivot
                         df_pivot.to_excel(writer, sheet_name=sheet_name, startrow=2, index=True)
                         
     return output.getvalue()
@@ -183,7 +175,6 @@ tanggal = st.date_input("Tanggal pengukuran:", pd.Timestamp.now())
 lokasi = st.selectbox("Lokasi pengukuran:", SHEET_NAMES, index=SHEET_NAMES.index(st.session_state['lokasi']))
 st.session_state['lokasi'] = lokasi
 
-# Kembali ke 2 kolom input
 col_ph, col_debit = st.columns(2) 
 with col_ph:
     ph = st.number_input("pH (0.0 - 14.0)", min_value=0.0, max_value=14.0, value=7.0, format="%.3f")
@@ -204,7 +195,6 @@ if st.button("Simpan data"):
     df_data_only['tanggal_date'] = df_data_only["tanggal"].astype(str).str.split(' ').str[0]
     df_data_only = df_data_only[df_data_only['tanggal_date'] != tanggal_input_str].drop(columns=['tanggal_date']).copy()
 
-    # Baris data baru (Hanya pH dan Debit)
     new_row = {
         "tanggal": tanggal.strftime('%Y-%m-%d %H:%M:%S'), 
         "pH": float(ph),
@@ -258,7 +248,7 @@ if st.button("Simpan data"):
     st.rerun() 
 
 # ----------------------------
-# Preview data (Hanya pH dan Debit)
+# Preview data
 # ----------------------------
 st.markdown("---")
 st.subheader("Preview Data Lokasi Aktif (Format Bulanan)")
@@ -347,7 +337,7 @@ try:
             df_pivot = df_pivot.rename(index={'pH': 'pH', 'debit': 'Debit (l/d)'})
             df_pivot = df_pivot.reindex(['pH', 'Debit (l/d)']) 
             
-            # Tambahkan kolom KETERANGAN untuk preview agar sama dengan Excel
+            # Tambahkan kolom KETERANGAN untuk preview 
             df_pivot['KETERANGAN'] = '' 
             
             # Penyesuaian tampilan untuk Streamlit
@@ -368,7 +358,7 @@ except Exception as e:
 # ----------------------------
 st.markdown("---")
 st.subheader("Pengelolaan File Excel")
-st.info("File yang diunduh sekarang berisi sheet data mentah dan sheet ringkasan bulanan berformat tabel (pH, Debit, Keterangan).")
+st.info("File yang diunduh hanya berisi sheet ringkasan bulanan berformat tabel.")
 
 all_raw_sheets = read_all_sheets(EXCEL_PATH)
 
