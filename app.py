@@ -3,7 +3,7 @@ import pandas as pd
 from pathlib import Path
 import os 
 import numpy as np 
-import io # Diperlukan untuk menyimpan file Excel di memori
+import io 
 
 # ----------------------------
 # Konfigurasi / Nama file
@@ -23,7 +23,8 @@ SHEET_NAMES = [
     "Silika",
     "Kondensor PLTU"
 ]
-COLUMNS = ["tanggal", "pH", "debit", "ph_rata_rata_bulan", "debit_rata_rata_bulan"]
+# Kolom HANYA pH dan Debit (Suhu dihapus)
+COLUMNS = ["tanggal", "pH", "debit", "ph_rata_rata_bulan", "debit_rata_rata_bulan"] 
 
 st.set_page_config(page_title="Pencatatan pH & Debit Air", layout="centered")
 st.title("📊 Pencatatan pH dan Debit Air")
@@ -40,12 +41,10 @@ def initialize_excel(path: Path):
                 df.to_excel(writer, sheet_name=sheet, index=False)
     else:
         try:
-            # Baca semua sheet untuk memastikan mana yang sudah ada
             all_sheets = pd.read_excel(path, sheet_name=None, engine="openpyxl", converters={'tanggal': str})
         except Exception:
             all_sheets = {}
 
-        # Simpan kembali dengan mode 'a' (append) untuk menambahkan sheet yang hilang
         with pd.ExcelWriter(path, engine="openpyxl", mode="a", if_sheet_exists="overlay") as writer:
             for sheet in SHEET_NAMES:
                 if sheet not in all_sheets:
@@ -71,7 +70,7 @@ def save_all_sheets(dfs: dict, path: Path):
 
 # ----------------------------------------------------
 # FUNGSI MEMBUAT FILE EXCEL UNTUK DOWNLOAD DENGAN FORMAT PIVOT
-# (SUDAH DIPERBAIKI DARI BUG 'AttributeError')
+# (Hanya pH & Debit, Ditambah Kolom Keterangan)
 # ----------------------------------------------------
 def create_pivot_data(df_raw, lokasi):
     """Memproses DataFrame mentah menjadi format pivot bulanan."""
@@ -84,7 +83,6 @@ def create_pivot_data(df_raw, lokasi):
     df_data_rows = df_data_rows.dropna(subset=['tanggal_dt'])
 
     if df_data_rows.empty:
-        # PERBAIKAN: Hanya kembalikan None jika tidak ada data valid
         return None 
     
     df_data_rows['TahunBulan'] = df_data_rows['tanggal_dt'].dt.strftime('%Y-%m')
@@ -99,8 +97,8 @@ def create_pivot_data(df_raw, lokasi):
         selected_year = df_group['tanggal_dt'].dt.year.iloc[0]
         sheet_name = f"{lokasi} - {tahun_bulan}"
 
-        # Lakukan Operasi Pivot
-        df_pivot_data = df_group[['Hari', 'pH', 'debit']]
+        # Lakukan Operasi Pivot (Hanya pH dan Debit)
+        df_pivot_data = df_group[['Hari', 'pH', 'debit']] 
         
         df_pivot = pd.melt(
             df_pivot_data, 
@@ -136,12 +134,15 @@ def create_pivot_data(df_raw, lokasi):
         
         # Finalisasi (Rename baris dan kolom)
         df_pivot = df_pivot.rename(index={'pH': 'pH', 'debit': 'Debit (l/d)'})
-        df_pivot = df_pivot.reindex(['pH', 'Debit (l/d)'])
+        # Atur urutan baris
+        df_pivot = df_pivot.reindex(['pH', 'Debit (l/d)']) 
+        
+        # Tambahkan kolom KETERANGAN di bagian paling kanan
+        df_pivot['KETERANGAN'] = '' 
         
         # Ganti nama kolom index (Parameter) menjadi kosong
         df_pivot.index.name = None 
         
-        # Sisipkan data pivot ke dalam dictionary
         pivot_sheets[sheet_name] = df_pivot
         
     return pivot_sheets
@@ -167,7 +168,7 @@ def create_excel_with_pivot_sheets(all_raw_sheets):
                         header_df = pd.DataFrame({sheet_name: [f"Data Bulanan {lokasi}"]}).T
                         header_df.to_excel(writer, sheet_name=sheet_name, index=True, header=False, startrow=0)
                         
-                        # Tulis tabel pivot
+                        # Tulis tabel pivot (Keterangan akan otomatis menjadi kolom terakhir)
                         df_pivot.to_excel(writer, sheet_name=sheet_name, startrow=2, index=True)
                         
     return output.getvalue()
@@ -182,7 +183,8 @@ tanggal = st.date_input("Tanggal pengukuran:", pd.Timestamp.now())
 lokasi = st.selectbox("Lokasi pengukuran:", SHEET_NAMES, index=SHEET_NAMES.index(st.session_state['lokasi']))
 st.session_state['lokasi'] = lokasi
 
-col_ph, col_debit = st.columns(2)
+# Kembali ke 2 kolom input
+col_ph, col_debit = st.columns(2) 
 with col_ph:
     ph = st.number_input("pH (0.0 - 14.0)", min_value=0.0, max_value=14.0, value=7.0, format="%.3f")
 with col_debit:
@@ -191,7 +193,6 @@ with col_debit:
 
 if st.button("Simpan data"):
     read_all_sheets.clear() 
-    # PERBAIKAN: Pemanggilan fungsi yang benar (Mengatasi NameError)
     all_sheets = read_all_sheets(EXCEL_PATH) 
     df_loc = all_sheets.get(lokasi, pd.DataFrame(columns=COLUMNS))
 
@@ -203,6 +204,7 @@ if st.button("Simpan data"):
     df_data_only['tanggal_date'] = df_data_only["tanggal"].astype(str).str.split(' ').str[0]
     df_data_only = df_data_only[df_data_only['tanggal_date'] != tanggal_input_str].drop(columns=['tanggal_date']).copy()
 
+    # Baris data baru (Hanya pH dan Debit)
     new_row = {
         "tanggal": tanggal.strftime('%Y-%m-%d %H:%M:%S'), 
         "pH": float(ph),
@@ -230,7 +232,7 @@ if st.button("Simpan data"):
             df_hitung_rata.groupby(["tahun", "bulan"], as_index=False)
             .agg(
                 ph_rata_rata_bulan=('pH', 'mean'),
-                debit_rata_rata_bulan=('debit', 'mean') 
+                debit_rata_rata_bulan=('debit', 'mean')
             )
             .round(3)
         )
@@ -256,7 +258,7 @@ if st.button("Simpan data"):
     st.rerun() 
 
 # ----------------------------
-# Preview data
+# Preview data (Hanya pH dan Debit)
 # ----------------------------
 st.markdown("---")
 st.subheader("Preview Data Lokasi Aktif (Format Bulanan)")
@@ -293,7 +295,6 @@ try:
         
         bulan_options = bulan_tahun['Display'].tolist()
         
-        # Cek jika bulan_options tidak kosong sebelum menggunakan selectbox
         if not bulan_options:
             st.info(f"Tidak ada data harian yang tersedia untuk membuat preview bulanan.")
         else:
@@ -308,12 +309,12 @@ try:
                 (df_data_rows['Tahun'] == selected_year)
             ]
 
-            df_pivot_data = df_filtered[['Hari', 'pH', 'debit']]
+            df_pivot_data = df_filtered[['Hari', 'pH', 'debit']] 
             
             df_pivot = pd.melt(
                 df_pivot_data, 
                 id_vars=['Hari'], 
-                value_vars=['pH', 'debit'], 
+                value_vars=['pH', 'debit'],
                 var_name='Parameter', 
                 value_name='Nilai'
             )
@@ -344,7 +345,10 @@ try:
             df_pivot.index.name = lokasi 
             
             df_pivot = df_pivot.rename(index={'pH': 'pH', 'debit': 'Debit (l/d)'})
-            df_pivot = df_pivot.reindex(['pH', 'Debit (l/d)'])
+            df_pivot = df_pivot.reindex(['pH', 'Debit (l/d)']) 
+            
+            # Tambahkan kolom KETERANGAN untuk preview agar sama dengan Excel
+            df_pivot['KETERANGAN'] = '' 
             
             # Penyesuaian tampilan untuk Streamlit
             df_pivot_display = df_pivot.reset_index()
@@ -364,14 +368,12 @@ except Exception as e:
 # ----------------------------
 st.markdown("---")
 st.subheader("Pengelolaan File Excel")
-st.info("File yang diunduh sekarang berisi sheet data mentah dan sheet ringkasan bulanan berformat tabel.")
+st.info("File yang diunduh sekarang berisi sheet data mentah dan sheet ringkasan bulanan berformat tabel (pH, Debit, Keterangan).")
 
-# Membaca semua sheet yang disimpan (termasuk data harian dan rata-rata)
 all_raw_sheets = read_all_sheets(EXCEL_PATH)
 
 if EXCEL_PATH.exists() and all_raw_sheets:
     
-    # Memanggil FUNGSI untuk membuat file Excel dengan format pivot
     excel_data_for_download = create_excel_with_pivot_sheets(all_raw_sheets)
     
     col1, col2 = st.columns(2)
@@ -379,7 +381,7 @@ if EXCEL_PATH.exists() and all_raw_sheets:
     with col1:
         st.download_button(
             label="⬇️ Download File Excel (Ringkasan Format Tabel)",
-            data=excel_data_for_download, # Menggunakan data yang sudah diolah
+            data=excel_data_for_download, 
             file_name="ph_debit_ringkasan_bulanan.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
