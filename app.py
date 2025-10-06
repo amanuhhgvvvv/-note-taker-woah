@@ -7,7 +7,7 @@ import numpy as np
 # ----------------------------
 # Konfigurasi / Nama file
 # ----------------------------
-EXCEL_PATH = Path("ph_debit_data_pivot.xlsx") # Ganti nama file untuk menghindari bentrok
+EXCEL_PATH = Path("ph_debit_data_pivot.xlsx") 
 SHEET_NAMES = [
     "Power Plant",
     "Plant Garage",
@@ -18,7 +18,7 @@ SHEET_NAMES = [
     "Coal Yard",
     "Domestik",
     "Limestone",
-    "Clay Laterite", # Pilihan yang sesuai dengan format tabel
+    "Clay Laterite", 
     "Silika",
     "Kondensor PLTU"
 ]
@@ -184,6 +184,118 @@ try:
             .sort_values(by=['Tahun', 'Bulan'], ascending=False)
         )
         
-        # Buat string format "Nama Bulan Tahun"
+        # BARIS 189: PASTIKAN KURUNG KURAWAL TERTUTUP DENGAN BENAR
         bulan_tahun['Display'] = bulan_tahun.apply(
-            lambda row: pd.to_datetime(f"{
+            lambda row: pd.to_datetime(f"{row['Tahun']}-{row['Bulan']}-01").strftime("%B %Y"), 
+            axis=1
+        )
+        
+        # --- Filter Bulan/Tahun ---
+        bulan_options = bulan_tahun['Display'].tolist()
+        # Selalu tampilkan bulan terbaru sebagai default
+        selected_display = st.selectbox("Pilih Bulan dan Tahun:", options=bulan_options)
+        
+        selected_row = bulan_tahun[bulan_tahun['Display'] == selected_display].iloc[0]
+        selected_month = selected_row['Bulan']
+        selected_year = selected_row['Tahun']
+        
+        # Filter data berdasarkan pilihan
+        df_filtered = df_data_rows[
+            (df_data_rows['Bulan'] == selected_month) & 
+            (df_data_rows['Tahun'] == selected_year)
+        ]
+
+        # 2. Lakukan Operasi Pivot (Transformasi Data)
+        
+        # Pilih kolom yang akan di-pivot (Hanya pH dan Debit)
+        df_pivot_data = df_filtered[['Hari', 'pH', 'debit']]
+        
+        # Susun ulang data: Hari sebagai Kolom, Parameter sebagai Index
+        df_pivot = pd.melt(
+            df_pivot_data, 
+            id_vars=['Hari'], 
+            value_vars=['pH', 'debit'], # Hanya pH dan Debit
+            var_name='Parameter', 
+            value_name='Nilai'
+        )
+        
+        df_pivot = df_pivot.pivot(
+            index='Parameter', 
+            columns='Hari', 
+            values='Nilai'
+        )
+        
+        # 3. Tambahkan Rata-rata Bulanan (Kolom terakhir)
+        
+        # Ambil rata-rata untuk bulan/tahun yang dipilih
+        avg_row = df_avg_rows[
+            df_avg_rows['tanggal'].astype(str).str.contains(f"{selected_month:02d}/{selected_year}", na=False)
+        ]
+
+        if not avg_row.empty:
+            ph_avg = avg_row['ph_rata_rata_bulan'].iloc[0]
+            debit_avg = avg_row['debit_rata_rata_bulan'].iloc[0]
+
+            # Siapkan baris rata-rata untuk digabungkan
+            rata_rata_series = pd.Series(
+                data=[ph_avg, debit_avg], 
+                index=['pH', 'debit'], 
+                name='Rata-rata'
+            )
+            
+            # Gabungkan Kolom Rata-rata
+            df_pivot['Rata-rata'] = rata_rata_series 
+        else:
+             df_pivot['Rata-rata'] = np.nan
+
+        # 4. Finalisasi Tampilan
+        
+        # Tambahkan kolom 'Satuan'
+        df_pivot.insert(0, 'Satuan', ['pH', 'l/d'])
+
+        # Ganti nama Index (Parameter) dan Urutkan
+        df_pivot.index.name = "CLAY & LATERITE"
+        df_pivot = df_pivot.reindex(['pH', 'debit'])
+
+        st.dataframe(df_pivot, use_container_width=True)
+
+except Exception as e:
+    st.error(f"Gagal memproses data atau menampilkan format bulanan: {e}")
+
+# ----------------------------
+# Tombol download file Excel gabungan + LOGIKA HAPUS DATA (DIPISAHKAN)
+# ----------------------------
+st.markdown("---")
+st.subheader("Pengelolaan File Excel")
+st.info("File disimpan di server sebagai `ph_debit_data_pivot.xlsx`. Unduh data sebelum Anda mereset.")
+
+if EXCEL_PATH.exists():
+    with open(EXCEL_PATH, "rb") as f:
+        data_bytes = f.read()
+    
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.download_button(
+            label="⬇️ Download File Excel (Semua Lokasi)",
+            data=data_bytes,
+            file_name="ph_debit_data_pivot.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+
+    with col2:
+        if st.button("🗑️ Reset Data di Server", help="Menghapus file Excel di server dan membuat ulang file kosong."):
+            try:
+                EXCEL_PATH.unlink() 
+                initialize_excel(EXCEL_PATH) 
+
+                read_all_sheets.clear() 
+                st.success("✅ File Excel telah **dihapus** dari server dan direset menjadi file kosong.")
+                
+                st.rerun() 
+                
+            except Exception as e:
+                st.error(f"Gagal menghapus dan mereset file Excel: {e}")
+
+else:
+    st.warning("File Excel belum tersedia di server untuk diunduh (mungkin sudah di-reset).")
