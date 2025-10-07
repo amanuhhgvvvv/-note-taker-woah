@@ -7,42 +7,67 @@ import io
 import xlsxwriter 
 import streamlit as st
 import streamlit as st
-import streamlit as st
-# ... (lanjutan import Anda) ...
 
-# --- TEMPATKAN URL GAMBAR BACKGROUND CAIR ANDA DI SINI ---
-# GANTI placeholder ini dengan Raw URL yang sudah saya konfirmasi sebelumnya.
-BACKGROUND_IMAGE_URL = "https://raw.githubusercontent.com/amanuhhgvvvv/-note-taker-woah/main/begron.jpg" 
-
-# --- KODE CSS UNTUK MENGGUNAKAN GAMBAR SEBAGAI BACKGROUND ---
-image_background_css = f"""
+# --- KODE CSS UNTUK LATAR BELAKANG MONITORING AIR ---
+water_monitor_css = """
 <style>
-/* 1. Ganti Latar Belakang Utama Aplikasi dengan Gambar */
-[data-testid="stAppViewContainer"] {{
-    background-image: url("{BACKGROUND_IMAGE_URL}"); 
-    background-size: cover;          
-    background-position: center;     
-    background-repeat: no-repeat;    
-    background-attachment: fixed;    
-}}
+/* 1. Gradient Latar Belakang: Biru Tua ke Cyan Cerah */
+[data-testid="stAppViewContainer"] {
+    background-image: linear-gradient(
+        180deg, /* Gradien Vertikal (atas ke bawah) */
+        #001F3F 0%,     /* Biru Tua/Navy (Kedalaman) di atas */
+        #0074D9 50%,    /* Biru Sedang (Data/Teknologi) di tengah */
+        #39CCCC 100%    /* Cyan (Air Bersih/Kesegaran) di bawah */
+    );
+    background-size: cover;
+    background-attachment: fixed;
+    background-position: center;
+}
 
-/* 2. Sesuaikan Konten Agar Mudah Dibaca */
-[data-testid="stHeader"], [data-testid="stToolbar"] {{
-    background: rgba(255, 255, 255, 0.1); 
-}}
+/* 2. Warna Teks dan Konten Agar Terbaca */
+body {
+    color: white; /* Atur teks utama menjadi putih agar kontras dengan latar belakang gelap */
+}
 
-/* 3. Sidebar (Kontras agar konten Streamlit terbaca) */
-[data-testid="stSidebar"] {{
-    background-color: rgba(255, 255, 255, 0.85); 
-    color: black;
-}}
+/* 3. Sidebar (Warna Khas Dasbor) */
+[data-testid="stSidebar"] {
+    /* Biru Tua/Navy untuk tampilan dasbor yang tenang dan fokus */
+    background-color: #001F3F; 
+    color: white; /* Teks di sidebar tetap putih */
+}
+
+/* 4. Kontainer Utama dan Header */
+[data-testid="stHeader"], [data-testid="stToolbar"] {
+    /* Sedikit transparan dan gelap agar menyatu */
+    background: rgba(0, 0, 0, 0.4); 
+}
+
+/* 5. Kotak Kontainer untuk Data/Grafik (Opsional: agar konten menonjol) */
+/* Anda dapat membuat kartu data menjadi sedikit transparan dan putih */
+.stContainer {
+    background-color: rgba(255, 255, 255, 0.1); 
+    border-radius: 10px;
+    padding: 10px;
+}
 </style>
 """
 
 # Terapkan CSS ke Streamlit
-st.markdown(image_background_css, unsafe_allow_html=True)
+st.markdown(water_monitor_css, unsafe_allow_html=True)
 
-# ... (lanjutan kode aplikasi Streamlit Anda) ...
+
+# --- PENYESUAIAN TEMA CONFIG.TOML ---
+# Karena Anda menggunakan tema kustom di CSS, Anda juga harus mengatur primaryColor
+# di file .streamlit/config.toml agar tombol, link, dan penekanan data (seperti chart)
+# menggunakan warna data/air yang sesuai (misalnya, cyan atau biru cerah).
+
+# Isi file .streamlit/config.toml Anda harusnya:
+# [theme]
+# primaryColor="#39CCCC"     # Cyan cerah untuk tombol dan link
+# secondaryBackgroundColor="#001F3F" # Sidebar (jika Anda tidak pakai CSS)
+# backgroundColor="#003366"  # Warna latar belakang dasar
+# textColor="#FFFFFF"        # Teks putih
+
 EXCEL_PATH = Path("ph_debit_data_pivot.xlsx") 
 SHEET_NAMES = [
     "Power Plant",
@@ -491,6 +516,7 @@ if EXCEL_PATH.exists() and all_raw_sheets:
 
 else:
     st.warning("File Excel belum tersedia di server untuk diunduh (mungkin sudah di-reset).")
+
 
 
 
