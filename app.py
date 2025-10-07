@@ -7,55 +7,15 @@ import io
 import xlsxwriter 
 import streamlit as st
 import streamlit as st
+BACKGROUND_IMAGE_URL = "https://raw.githubusercontent.com/amanuhhgvvvv/-note-taker-woah/main/begron.jpg"
 
-import streamlit as st
-# ... (lanjutan import Anda) ...
+# ... (lanjutan kode CSS) ...
 
-# --- KODE CSS UNTUK LATAR BELAKANG GRADIENT CAIR ---
-fluid_gradient_css = """
-<style>
-/* 1. Ganti Latar Belakang Utama Aplikasi */
 [data-testid="stAppViewContainer"] {
-    /* Gradien Cair dengan banyak warna: Biru, Ungu, Merah Jambu, Kuning */
-    background-image: linear-gradient(
-        135deg, /* Sudut gradien 135 derajat */
-        #4CAF50 0%,     /* Hijau sebagai titik awal */
-        #00BCD4 15%,    /* Cyan / Biru Cerah */
-        #2196F3 35%,    /* Biru Sedang */
-        #9C27B0 60%,    /* Ungu */
-        #E91E63 85%,    /* Merah Jambu */
-        #FFEB3B 100%    /* Kuning sebagai titik akhir */
-    );
-    background-size: cover;
-    background-attachment: fixed;
-    background-position: center;
+    background-image: url("{BACKGROUND_IMAGE_URL}"); 
+    # ... (lanjutan properti CSS) ...
 }
-
-/* 2. Sesuaikan Konten Agar Mudah Dibaca */
-/* Jadikan header dan toolbar sedikit transparan agar gradien terlihat */
-[data-testid="stHeader"], [data-testid="stToolbar"] {
-    background: rgba(255, 255, 255, 0.1); /* Sedikit transparan dan terang */
-}
-
-/* 3. Sidebar (Kontras agar konten Streamlit terbaca) */
-[data-testid="stSidebar"] {
-    background-color: rgba(255, 255, 255, 0.9); /* Putih transparan agar teks di sidebar terbaca jelas */
-    color: black;
-}
-
-/* 4. Atur Warna Teks Kontras dengan latar belakang cerah */
-body {
-    color: #262730; /* Teks default menjadi hitam gelap */
-}
-</style>
-"""
-
-# Terapkan CSS ke Streamlit
-st.markdown(fluid_gradient_css, unsafe_allow_html=True)
-
-# --- LANJUTKAN DENGAN KODE APLIKASI UTAMA ANDA DI SINI ---
-# EXCEL_PATH = Path("ph_debit_data_pivot.xlsx")
-# ... (lanjutan kode aplikasi Anda) ...
+# ...
 EXCEL_PATH = Path("ph_debit_data_pivot.xlsx") 
 SHEET_NAMES = [
     "Power Plant",
@@ -504,6 +464,7 @@ if EXCEL_PATH.exists() and all_raw_sheets:
 
 else:
     st.warning("File Excel belum tersedia di server untuk diunduh (mungkin sudah di-reset).")
+
 
 
 
