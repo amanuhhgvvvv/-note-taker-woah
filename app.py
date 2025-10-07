@@ -5,7 +5,69 @@ import os
 import numpy as np 
 import io 
 import xlsxwriter 
+import streamlit as st
 
+# --- KODE CSS UNTUK GRADIENT BACKGROUND DAN BURUNG ---
+custom_css = """
+<style>
+/* 1. Gradient Warna Latar Belakang (Biru Laut ke Hijau Daun) */
+[data-testid="stAppViewContainer"] {
+    background-image: linear-gradient(180deg, #0077BE 0%, #4CAF50 100%); 
+    /* Biru Laut (#0077BE) di atas, Hijau Daun (#4CAF50) di bawah */
+    background-attachment: fixed;
+    background-size: cover;
+}
+
+/* 2. Menjaga Konten Utama Tetap Terlihat */
+[data-testid="stHeader"], [data-testid="stToolbar"] {
+    background: rgba(255, 255, 255, 0.1); /* Sedikit transparan */
+}
+[data-testid="stSidebar"] {
+    background-color: rgba(255, 255, 255, 0.8); /* Sidebar agar mudah dibaca */
+}
+
+/* 3. Animasi Burung Terbang (Animasi Sederhana/Konsep) */
+/* Karena tidak bisa memasukkan gambar secara langsung ke CSS Streamlit tanpa hosting, 
+   ini adalah demonstrasi konsep dengan menggunakan emoji atau teks sebagai 'burung'.
+   Untuk gambar burung sungguhan, Anda perlu menampungnya (host) di tempat lain. */
+.bird-container {
+    position: fixed;
+    top: 10%;
+    left: 0;
+    width: 100%;
+    height: 100px;
+    pointer-events: none; /* Agar tidak mengganggu klik */
+    overflow: hidden;
+}
+
+.bird {
+    font-size: 40px;
+    position: absolute;
+    animation: fly 15s linear infinite;
+    color: #FFFFFF;
+    text-shadow: 2px 2px 5px rgba(0,0,0,0.5);
+}
+
+@keyframes fly {
+    0% { transform: translateX(-100vw) translateY(0); } /* Mulai di luar layar kiri */
+    100% { transform: translateX(100vw) translateY(10vh); } /* Berakhir di luar layar kanan */
+}
+</style>
+"""
+
+# Terapkan CSS ke Streamlit
+st.markdown(custom_css, unsafe_allow_html=True)
+
+# --- SISIPKAN BURUNG (dengan Teks/Emoji) ---
+# (Ulangi baris ini beberapa kali untuk "kawanan" burung)
+st.markdown('<div class="bird-container"><span class="bird">🕊️</span></div>', unsafe_allow_html=True)
+st.markdown('<div class="bird-container" style="top: 30%; animation-delay: 5s;"><span class="bird">🐦</span></div>', unsafe_allow_html=True)
+st.markdown('<div class="bird-container" style="top: 50%; animation-delay: 10s;"><span class="bird">🕊️</span></div>', unsafe_allow_html=True)
+
+
+# --- KODE APLIKASI STREAMLIT ANDA BERIKUTNYA ---
+st.title("Pencatatan pH dan Debit Air")
+# ... (lanjutkan kode aplikasi Anda di sini)
 # ----------------------------
 # Konfigurasi / Nama file
 # ----------------------------
@@ -457,3 +519,4 @@ if EXCEL_PATH.exists() and all_raw_sheets:
 
 else:
     st.warning("File Excel belum tersedia di server untuk diunduh (mungkin sudah di-reset).")
+
