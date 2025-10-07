@@ -7,15 +7,42 @@ import io
 import xlsxwriter 
 import streamlit as st
 import streamlit as st
-BACKGROUND_IMAGE_URL = "https://raw.githubusercontent.com/amanuhhgvvvv/-note-taker-woah/main/begron.jpg"
+import streamlit as st
+# ... (lanjutan import Anda) ...
 
-# ... (lanjutan kode CSS) ...
+# --- TEMPATKAN URL GAMBAR BACKGROUND CAIR ANDA DI SINI ---
+# GANTI placeholder ini dengan Raw URL yang sudah saya konfirmasi sebelumnya.
+BACKGROUND_IMAGE_URL = "https://raw.githubusercontent.com/amanuhhgvvvv/-note-taker-woah/main/begron.jpg" 
 
-[data-testid="stAppViewContainer"] {
+# --- KODE CSS UNTUK MENGGUNAKAN GAMBAR SEBAGAI BACKGROUND ---
+image_background_css = f"""
+<style>
+/* 1. Ganti Latar Belakang Utama Aplikasi dengan Gambar */
+[data-testid="stAppViewContainer"] {{
     background-image: url("{BACKGROUND_IMAGE_URL}"); 
-    # ... (lanjutan properti CSS) ...
-}
-# ...
+    background-size: cover;          
+    background-position: center;     
+    background-repeat: no-repeat;    
+    background-attachment: fixed;    
+}}
+
+/* 2. Sesuaikan Konten Agar Mudah Dibaca */
+[data-testid="stHeader"], [data-testid="stToolbar"] {{
+    background: rgba(255, 255, 255, 0.1); 
+}}
+
+/* 3. Sidebar (Kontras agar konten Streamlit terbaca) */
+[data-testid="stSidebar"] {{
+    background-color: rgba(255, 255, 255, 0.85); 
+    color: black;
+}}
+</style>
+"""
+
+# Terapkan CSS ke Streamlit
+st.markdown(image_background_css, unsafe_allow_html=True)
+
+# ... (lanjutan kode aplikasi Streamlit Anda) ...
 EXCEL_PATH = Path("ph_debit_data_pivot.xlsx") 
 SHEET_NAMES = [
     "Power Plant",
@@ -464,6 +491,7 @@ if EXCEL_PATH.exists() and all_raw_sheets:
 
 else:
     st.warning("File Excel belum tersedia di server untuk diunduh (mungkin sudah di-reset).")
+
 
 
 
