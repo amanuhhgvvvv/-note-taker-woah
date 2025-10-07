@@ -8,46 +8,32 @@ import xlsxwriter
 import streamlit as st
 import streamlit as st
 
-# --- KODE CSS UNTUK LATAR BELAKANG AWAN PETIR ---
-custom_css_petir = """
+import streamlit as st
+# ... (import lainnya) ...
+
+# --- CSS untuk Background Bersih seperti Kanvas ---
+canva_css = """
 <style>
-/* 1. Ganti Latar Belakang Utama Aplikasi */
+/* Memastikan area aplikasi utama berwarna putih bersih */
 [data-testid="stAppViewContainer"] {
-    /* GANTI URL DI BAWAH INI DENGAN URL GAMBAR/GIF AWAN PETIR MILIK ANDA */
-    background-image: url("URL_GAMBAR_GIF_AWAN_PETIR_ANDA_DI_SINI"); 
-    
-    /* Properti untuk gambar */
-    background-size: cover;        /* Pastikan gambar menutupi seluruh area */
-    background-position: center;   /* Pusatkan gambar */
-    background-repeat: no-repeat;  /* Jangan ulangi gambar */
-    background-attachment: fixed;  /* Gambar tetap saat di-scroll */
+    background-color: #FFFFFF;
 }
 
-/* 2. Jadikan Teks dan Konten Lebih Mudah Dibaca */
-/* Kita buat konten utama (header, toolbar) sedikit transparan dengan latar putih/hitam */
-[data-testid="stHeader"], [data-testid="stToolbar"] {
-    background: rgba(0, 0, 0, 0.5); /* Sedikit gelap, agar teks putih/konten Streamlit kontras */
+/* Memastikan elemen header/toolbar tidak mengganggu */
+[data-testid="stHeader"] {
+    background: #FFFFFF;
 }
 
-/* 3. Atur Warna Teks Agar Kontras */
-body {
-    color: white; /* Ganti warna teks utama menjadi putih */
-}
-
-/* 4. Jadikan Sidebar Kontras (misalnya Putih Transparan) */
+/* Membuat Sidebar sedikit kontras (opsional, tapi sering terlihat di aplikasi desain) */
 [data-testid="stSidebar"] {
-    background-color: rgba(255, 255, 255, 0.85); /* Sidebar putih transparan */
-    color: black; /* Pastikan teks di sidebar berwarna hitam agar terbaca */
+    background-color: #F0F0F5; 
 }
 </style>
 """
 
-# Terapkan CSS ke Streamlit
-st.markdown(custom_css_petir, unsafe_allow_html=True)
+st.markdown(canva_css, unsafe_allow_html=True)
 
-# --- LANJUTKAN DENGAN KODE APLIKASI UTAMA ANDA DI SINI ---
-# st.title("Pencatatan pH dan Debit Air")
-# ...
+# ... (Kode aplikasi Anda selanjutnya) ...
 EXCEL_PATH = Path("ph_debit_data_pivot.xlsx") 
 SHEET_NAMES = [
     "Power Plant",
@@ -496,6 +482,7 @@ if EXCEL_PATH.exists() and all_raw_sheets:
 
 else:
     st.warning("File Excel belum tersedia di server untuk diunduh (mungkin sudah di-reset).")
+
 
 
 
