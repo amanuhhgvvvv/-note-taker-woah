@@ -6,63 +6,48 @@ import numpy as np
 import io 
 import xlsxwriter 
 import streamlit as st
+import streamlit as st
 
-# --- KODE CSS UNTUK GRADIENT BACKGROUND DAN BURUNG ---
-custom_css = """
+# --- KODE CSS UNTUK LATAR BELAKANG AWAN PETIR ---
+custom_css_petir = """
 <style>
-/* 1. Gradient Warna Latar Belakang (Biru Laut ke Hijau Daun) */
+/* 1. Ganti Latar Belakang Utama Aplikasi */
 [data-testid="stAppViewContainer"] {
-    background-image: linear-gradient(180deg, #0077BE 0%, #4CAF50 100%); 
-    /* Biru Laut (#0077BE) di atas, Hijau Daun (#4CAF50) di bawah */
-    background-attachment: fixed;
-    background-size: cover;
+    /* GANTI URL DI BAWAH INI DENGAN URL GAMBAR/GIF AWAN PETIR MILIK ANDA */
+    background-image: url("URL_GAMBAR_GIF_AWAN_PETIR_ANDA_DI_SINI"); 
+    
+    /* Properti untuk gambar */
+    background-size: cover;        /* Pastikan gambar menutupi seluruh area */
+    background-position: center;   /* Pusatkan gambar */
+    background-repeat: no-repeat;  /* Jangan ulangi gambar */
+    background-attachment: fixed;  /* Gambar tetap saat di-scroll */
 }
 
-/* 2. Menjaga Konten Utama Tetap Terlihat */
+/* 2. Jadikan Teks dan Konten Lebih Mudah Dibaca */
+/* Kita buat konten utama (header, toolbar) sedikit transparan dengan latar putih/hitam */
 [data-testid="stHeader"], [data-testid="stToolbar"] {
-    background: rgba(255, 255, 255, 0.1); /* Sedikit transparan */
+    background: rgba(0, 0, 0, 0.5); /* Sedikit gelap, agar teks putih/konten Streamlit kontras */
 }
+
+/* 3. Atur Warna Teks Agar Kontras */
+body {
+    color: white; /* Ganti warna teks utama menjadi putih */
+}
+
+/* 4. Jadikan Sidebar Kontras (misalnya Putih Transparan) */
 [data-testid="stSidebar"] {
-    background-color: rgba(255, 255, 255, 0.8); /* Sidebar agar mudah dibaca */
-}
-
-/* 3. Animasi Burung Terbang (Animasi Sederhana/Konsep) */
-/* Karena tidak bisa memasukkan gambar secara langsung ke CSS Streamlit tanpa hosting, 
-   ini adalah demonstrasi konsep dengan menggunakan emoji atau teks sebagai 'burung'.
-   Untuk gambar burung sungguhan, Anda perlu menampungnya (host) di tempat lain. */
-.bird-container {
-    position: fixed;
-    top: 10%;
-    left: 0;
-    width: 100%;
-    height: 100px;
-    pointer-events: none; /* Agar tidak mengganggu klik */
-    overflow: hidden;
-}
-
-.bird {
-    font-size: 40px;
-    position: absolute;
-    animation: fly 15s linear infinite;
-    color: #FFFFFF;
-    text-shadow: 2px 2px 5px rgba(0,0,0,0.5);
-}
-
-@keyframes fly {
-    0% { transform: translateX(-100vw) translateY(0); } /* Mulai di luar layar kiri */
-    100% { transform: translateX(100vw) translateY(10vh); } /* Berakhir di luar layar kanan */
+    background-color: rgba(255, 255, 255, 0.85); /* Sidebar putih transparan */
+    color: black; /* Pastikan teks di sidebar berwarna hitam agar terbaca */
 }
 </style>
 """
 
 # Terapkan CSS ke Streamlit
-st.markdown(custom_css, unsafe_allow_html=True)
+st.markdown(custom_css_petir, unsafe_allow_html=True)
 
-# --- SISIPKAN BURUNG (dengan Teks/Emoji) ---
-# (Ulangi baris ini beberapa kali untuk "kawanan" burung)
-st.markdown('<div class="bird-container"><span class="bird">🕊️</span></div>', unsafe_allow_html=True)
-st.markdown('<div class="bird-container" style="top: 30%; animation-delay: 5s;"><span class="bird">🐦</span></div>', unsafe_allow_html=True)
-st.markdown('<div class="bird-container" style="top: 50%; animation-delay: 10s;"><span class="bird">🕊️</span></div>', unsafe_allow_html=True)
+# --- LANJUTKAN DENGAN KODE APLIKASI UTAMA ANDA DI SINI ---
+# st.title("Pencatatan pH dan Debit Air")
+# ...
 EXCEL_PATH = Path("ph_debit_data_pivot.xlsx") 
 SHEET_NAMES = [
     "Power Plant",
@@ -511,5 +496,6 @@ if EXCEL_PATH.exists() and all_raw_sheets:
 
 else:
     st.warning("File Excel belum tersedia di server untuk diunduh (mungkin sudah di-reset).")
+
 
 
