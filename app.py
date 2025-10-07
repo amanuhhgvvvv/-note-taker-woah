@@ -63,14 +63,6 @@ st.markdown(custom_css, unsafe_allow_html=True)
 st.markdown('<div class="bird-container"><span class="bird">🕊️</span></div>', unsafe_allow_html=True)
 st.markdown('<div class="bird-container" style="top: 30%; animation-delay: 5s;"><span class="bird">🐦</span></div>', unsafe_allow_html=True)
 st.markdown('<div class="bird-container" style="top: 50%; animation-delay: 10s;"><span class="bird">🕊️</span></div>', unsafe_allow_html=True)
-
-
-# --- KODE APLIKASI STREAMLIT ANDA BERIKUTNYA ---
-st.title("Pencatatan pH dan Debit Air")
-# ... (lanjutkan kode aplikasi Anda di sini)
-# ----------------------------
-# Konfigurasi / Nama file
-# ----------------------------
 EXCEL_PATH = Path("ph_debit_data_pivot.xlsx") 
 SHEET_NAMES = [
     "Power Plant",
@@ -519,4 +511,5 @@ if EXCEL_PATH.exists() and all_raw_sheets:
 
 else:
     st.warning("File Excel belum tersedia di server untuk diunduh (mungkin sudah di-reset).")
+
 
