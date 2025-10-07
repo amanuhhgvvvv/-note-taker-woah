@@ -1,0 +1,15 @@
+[theme]
+# Warna Tombol dan Link (Ungu Khas Canva)
+primaryColor="#8B5EE0" 
+
+# Latar Belakang Sekunder (untuk Sidebar atau elemen input/container)
+secondaryBackgroundColor="#F0F0F5" 
+
+# Latar Belakang Utama (sangat terang, mendekati putih)
+backgroundColor="#FFFFFF" 
+
+# Warna Teks (hitam standar)
+textColor="#262730"
+
+# Gunakan font sans serif
+font="sans serif"
