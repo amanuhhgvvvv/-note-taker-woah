@@ -87,7 +87,7 @@ SHEET_NAMES = [
 COLUMNS = ["tanggal", "pH", "suhu", "debit", "ph_rata_rata_bulan", "suhu_rata_rata_bulan", "debit_rata_rata_bulan"] 
 
 st.set_page_config(page_title="Pencatatan pH & Debit Air", layout="centered")
-st.title("📊 Pencatatan pH dan Debit Air")
+st.title("📊 Monitoring Air")
 
 # ----------------------------
 # Inisialisasi file Excel
@@ -516,6 +516,7 @@ if EXCEL_PATH.exists() and all_raw_sheets:
 
 else:
     st.warning("File Excel belum tersedia di server untuk diunduh (mungkin sudah di-reset).")
+
 
 
 
