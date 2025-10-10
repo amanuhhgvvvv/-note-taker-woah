@@ -3,7 +3,7 @@ import pandas as pd
 import numpy as np
 import io
 import xlsxwriter
-# BARIS INI (dari streamlit_gsheets_connection) SUDAH DIHAPUS
+# BARIS 'import streamlit_gsheets_connection' SUDAH DIHAPUS
 import datetime
 
 # ----------------------------
@@ -13,8 +13,7 @@ import datetime
 try:
     SHEET_ID = st.secrets["gsheets"]["spreadsheet_id"]
     
-    # PERUBAHAN UTAMA: Menggunakan st.connection() dengan type="spreadsheet"
-    # GSheetsConnection dihilangkan karena paketnya tidak diinstal
+    # PERBAIKAN: Menggunakan st.connection() dengan type="spreadsheet"
     conn = st.connection("gsheets", type="spreadsheet") 
     
 except KeyError:
@@ -62,7 +61,7 @@ st.title("📊 Pencatatan pH dan Debit Air (Data Permanen via Google Sheets)")
 @st.cache_data(ttl=5)
 def read_all_sheets_gsheets():
     """
-    Membaca semua sheet dari Google Sheets dengan format PIVOT Anda 
+    Membaaca semua sheet dari Google Sheets dengan format PIVOT Anda 
     dan mengkonversinya ke format RAW DATA (tanggal, pH, suhu, debit) untuk diproses.
     """
     all_dfs_raw = {}
@@ -126,4 +125,21 @@ def read_all_sheets_gsheets():
             all_dfs_raw[sheet_name] = df_raw.reindex(columns=INTERNAL_COLUMNS)
             
         except Exception as e:
-            st.warning(f"Gagal membaca sheet '{sheet_name}'. Pastikan format header
+            # PERBAIKAN SINTAKSIS PADA BARIS INI
+            st.warning(f"Gagal membaca sheet '{sheet_name}'. Pastikan format header Anda benar dan data ada di rentang A2:AF5. Error: {e}")
+            all_dfs_raw[sheet_name] = pd.DataFrame(columns=INTERNAL_COLUMNS)
+            
+    return all_dfs_raw
+
+def save_sheet_to_gsheets(lokasi: str, df_raw_data: pd.DataFrame):
+    """
+    Menyimpan data RAW dari Python kembali ke format PIVOT di Google Sheets.
+    Fungsi ini HANYA menulis nilai harian (pH, suhu, debit) dan nilai rata-rata.
+    --- FUNGSI INI SUDAH DIPERBAIKI ---
+    """
+    read_all_sheets_gsheets.clear()
+    
+    # 1. Filter Data Harian dan Rata-rata
+    df_data_only = df_raw_data[~df_raw_data["tanggal"].astype(str).str.startswith('Rata-rata', na=False)].copy()
+    
+    # Periksa dan ambil data rata-rata (hanya satu baris yang mengandung
