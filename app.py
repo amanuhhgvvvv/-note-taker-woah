@@ -11,12 +11,15 @@ import datetime
 # ----------------------------
 # Dapatkan ID Spreadsheet dari secrets.toml
 try:
+    # Error: ModuleNotFoundError: No module named 'streamlit_gsheets_connection'
+    # PENTING: Pastikan Anda menambahkan streamlit-gsheets-connection di file requirements.txt
     SHEET_ID = st.secrets["gsheets"]["spreadsheet_id"]
     conn = st.connection("gsheets", type=GSheetsConnection)
 except KeyError:
     st.error("Gagal membaca 'spreadsheet_id' dari secrets.toml. Pastikan kunci [gsheets] sudah dikonfigurasi.")
     st.stop()
 except Exception as e:
+    # Error ini sering muncul jika format secrets.toml salah, terutama private_key
     st.error(f"Gagal inisialisasi koneksi Google Sheets: {e}")
     st.stop()
     
@@ -44,7 +47,7 @@ GSHEET_ROW_MAP = {
     'suhu': 4,       # Data Suhu ada di Baris 4
     'debit': 5,      # Data Debit ada di Baris 5
 }
-# Kolom rata-rata di Google Sheet Anda (Diasumsikan Kolom AG, Indeks 32 jika A=0)
+# Kolom rata-rata di Google Sheet Anda (Diasumsikan Kolom AG - Kolom 33 jika A=1)
 GSHEET_AVG_COL_INDEX = 33 
 
 st.set_page_config(page_title="Pencatatan pH & Debit Air", layout="centered")
@@ -52,7 +55,7 @@ st.title("📊 Pencatatan pH dan Debit Air (Data Permanen via Google Sheets)")
 
 
 # ----------------------------
-# Utility: baca & simpan sheet (MODIFIKASI BESAR)
+# Utility: baca & simpan sheet (SUDAH DIREVISI)
 # ----------------------------
 @st.cache_data(ttl=5)
 def read_all_sheets_gsheets():
@@ -84,7 +87,8 @@ def read_all_sheets_gsheets():
             
             # Ambil data rata-rata bulanan
             ph_avg = pd.to_numeric(df_pivot.loc['pH'].get(avg_col_name), errors='coerce')
-            suhu_avg = pd.to_numeric(df_pivot.loc['suhu (°C)'].get(avg_col_name), errors='coerce')
+            # PENTING: Pastikan penamaan indeks sesuai di GSheet Anda (suhu (°C), Debit (l/d))
+            suhu_avg = pd.to_numeric(df_pivot.loc['suhu (°C)'].get(avg_col_name), errors='coerce') 
             debit_avg = pd.to_numeric(df_pivot.loc['Debit (l/d)'].get(avg_col_name), errors='coerce')
 
             # Hapus kolom rata-rata dari data harian untuk diproses
@@ -101,7 +105,6 @@ def read_all_sheets_gsheets():
             # Membuat DataFrame Raw Data Harian
             df_raw = pd.DataFrame()
             df_raw['tanggal'] = [f"{current_year}-{current_month:02d}-{int(day):02d}" for day in df_raw_data.index]
-            # Pastikan nama index parameter sesuai dengan Google Sheet (terutama 'suhu (°C)' dan 'Debit (l/d)')
             df_raw['pH'] = pd.to_numeric(df_raw_data['pH'], errors='coerce').values
             df_raw['suhu'] = pd.to_numeric(df_raw_data['suhu (°C)'], errors='coerce').values
             df_raw['debit'] = pd.to_numeric(df_raw_data['Debit (l/d)'], errors='coerce').values
@@ -128,7 +131,9 @@ def read_all_sheets_gsheets():
 
 def save_sheet_to_gsheets(lokasi: str, df_raw_data: pd.DataFrame):
     """
-    MENULIS ULANG FUNGSI INI DENGAN LOGIKA PENULISAN YANG LEBIH AKURAT.
+    Menyimpan data RAW dari Python kembali ke format PIVOT di Google Sheets.
+    Fungsi ini HANYA menulis nilai harian (pH, suhu, debit) dan nilai rata-rata.
+    --- FUNGSI INI SUDAH DIPERBAIKI ---
     """
     read_all_sheets_gsheets.clear()
     
@@ -194,7 +199,6 @@ def save_sheet_to_gsheets(lokasi: str, df_raw_data: pd.DataFrame):
 # ----------------------------------------------------
 # FUNGSI MEMBUAT FILE EXCEL UNTUK DOWNLOAD DENGAN FORMAT PIVOT (TETAP)
 # ----------------------------------------------------
-# Fungsi create_pivot_data dan create_excel_with_pivot_sheets tidak diubah
 def create_pivot_data(df_raw, lokasi):
     """Memproses DataFrame mentah menjadi format pivot bulanan."""
     df_data_rows = df_raw[~df_raw["tanggal"].astype(str).str.startswith('Rata-rata', na=False)].copy()
@@ -317,7 +321,7 @@ def create_excel_with_pivot_sheets(all_raw_sheets):
 
 
 # ----------------------------
-# Form input
+# Form input (TETAP SAMA)
 # ----------------------------
 if 'lokasi' not in st.session_state:
     st.session_state['lokasi'] = SHEET_NAMES[0]
@@ -403,7 +407,7 @@ if st.button("Simpan data"):
     df_loc = df_final
     
     try:
-        # Panggil fungsi save yang baru
+        # Panggil fungsi save yang sudah diperbaiki
         save_sheet_to_gsheets(lokasi, df_loc)
         st.success(f"✅ Data TERSIMPAN PERMANEN di Google Sheets '{lokasi}' — tanggal {tanggal.strftime('%Y-%m-%d')}. Data rata-rata diperbarui.")
         st.rerun()
@@ -412,7 +416,7 @@ if st.button("Simpan data"):
 
 
 # ----------------------------
-# Preview data
+# Preview data (TETAP SAMA)
 # ----------------------------
 st.markdown("---")
 st.subheader("Preview Data Lokasi Aktif (Format Bulanan)")
@@ -515,7 +519,7 @@ except Exception as e:
         st.error(f"Gagal memproses data atau menampilkan format bulanan: {e}")
 
 # ----------------------------
-# Tombol download file Excel gabungan
+# Tombol download file Excel gabungan (TETAP SAMA)
 # ----------------------------
 st.markdown("---")
 st.subheader("Pengelolaan File Excel")
