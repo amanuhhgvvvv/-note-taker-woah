@@ -1,5 +1,6 @@
 streamlit
-pandas==2.2.2  # Gunakan versi yang stabil
+pandas==2.2.2 
 numpy
-streamlit-gsheets-connection==0.0.8 # Versi stabil (atau versi terbaru yang Anda temukan)
+streamlit-gsheets-connection==0.0.8 
 xlsxwriter
+
