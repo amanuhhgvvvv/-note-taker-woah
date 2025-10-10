@@ -3,7 +3,7 @@ import pandas as pd
 import numpy as np
 import io
 import xlsxwriter
-from streamlit_gsheets_connection import GSheetsConnection 
+from streamlit_gsheets_connection import GSheetsConnection
 import datetime
 
 # ----------------------------
@@ -12,7 +12,7 @@ import datetime
 # Dapatkan ID Spreadsheet dari secrets.toml
 try:
     SHEET_ID = st.secrets["gsheets"]["spreadsheet_id"]
-    conn = st.connection("gsheets", type=GSheetsConnection) 
+    conn = st.connection("gsheets", type=GSheetsConnection)
 except KeyError:
     st.error("Gagal membaca 'spreadsheet_id' dari secrets.toml. Pastikan kunci [gsheets] sudah dikonfigurasi.")
     st.stop()
@@ -36,18 +36,16 @@ SHEET_NAMES = [
     "Kondensor PLTU"
 ]
 # Kolom pH, Suhu, dan Debit untuk LOGIKA INTERNAL PYTHON
-# NOTE: Kolom ini BUKAN header di Google Sheet Anda, melainkan kolom logis untuk Pandas.
 INTERNAL_COLUMNS = ["tanggal", "pH", "suhu", "debit", "ph_rata_rata_bulan", "suhu_rata_rata_bulan", "debit_rata_rata_bulan"]
 
 # Mapping baris di Google Sheet Anda
 GSHEET_ROW_MAP = {
-    'pH': 3,          # Data pH ada di Baris 3
-    'suhu': 4,        # Data Suhu ada di Baris 4
-    'debit': 5,       # Data Debit ada di Baris 5
+    'pH': 3,         # Data pH ada di Baris 3
+    'suhu': 4,       # Data Suhu ada di Baris 4
+    'debit': 5,      # Data Debit ada di Baris 5
 }
-# Kolom rata-rata di Google Sheet Anda
-GSHEET_AVG_COL_INDEX = 33 # Biasanya kolom AC atau lebih (Kolom 34 jika A=1)
-# Kita asumsikan Kolom B = Hari 1, Kolom AF = Rata-rata (32)
+# Kolom rata-rata di Google Sheet Anda (Diasumsikan Kolom AG, Indeks 32 jika A=0)
+GSHEET_AVG_COL_INDEX = 33 
 
 st.set_page_config(page_title="Pencatatan pH & Debit Air", layout="centered")
 st.title("📊 Pencatatan pH dan Debit Air (Data Permanen via Google Sheets)")
@@ -67,12 +65,11 @@ def read_all_sheets_gsheets():
     for sheet_name in SHEET_NAMES:
         try:
             # Baca data mentah, termasuk header baris 2 (Hari) dan kolom A (Parameter)
-            # Kita baca A2:AF5 (kolom A sampai AF, baris 2 sampai 5)
-            # Ini mencakup header hari, data pH, suhu, debit, dan kolom rata-rata.
+            # Rentang A2:AF5 mencakup Hari ke-1 sampai 31 dan Kolom Rata-rata (dianggap AF atau AG)
             df_pivot = conn.read(
                 spreadsheet=SHEET_ID, 
                 worksheet=sheet_name, 
-                range="A2:AF5", # Asumsi Hari ke-1 sampai 31 dan Rata-rata ada di A2:AF
+                range="A2:AF5", # Rentang bacaan untuk hari 1-31 dan parameter
                 header=1,       # Baris 2 (Hari) dijadikan header
                 ttl=0
             )
@@ -81,11 +78,11 @@ def read_all_sheets_gsheets():
             df_pivot.rename(columns={df_pivot.columns[0]: 'Parameter'}, inplace=True)
             df_pivot.set_index('Parameter', inplace=True)
             
-            # 2. PENGAMBILAN RATA-RATA (Asumsi kolom 32 (AG/AF?) adalah Rata-rata)
+            # 2. PENGAMBILAN RATA-RATA 
             # Karena Anda menggunakan rentang A2:AF5, kolom terakhir (indeks -1) adalah Rata-rata.
-            avg_col_name = df_pivot.columns[-1] # Mengambil nama kolom terakhir, misal 'Rata-rata'
-
-            # Ambil data rata-rata bulanan (Baris di Google Sheet yang diproses menjadi kolom di df_pivot)
+            avg_col_name = df_pivot.columns[-1] # Mengambil nama kolom terakhir
+            
+            # Ambil data rata-rata bulanan
             ph_avg = pd.to_numeric(df_pivot.loc['pH'].get(avg_col_name), errors='coerce')
             suhu_avg = pd.to_numeric(df_pivot.loc['suhu (°C)'].get(avg_col_name), errors='coerce')
             debit_avg = pd.to_numeric(df_pivot.loc['Debit (l/d)'].get(avg_col_name), errors='coerce')
@@ -96,10 +93,6 @@ def read_all_sheets_gsheets():
             # 3. UN-PIVOT (Mengubah format pivot Anda menjadi format raw data)
             df_raw_data = df_pivot_harian.T # Transpose: Hari menjadi index
 
-            # Ambil Bulan dan Tahun dari nama sheet (Anda harus mengatur nama sheet bulanan di sini jika Anda menggunakan ini untuk membaca)
-            # Karena format Anda adalah PERMANEN per LOKASI, kita harus mengasumsikan
-            # semua data yang ada di Sheet adalah data BULAN INI.
-            
             # UNTUK KEMUDAHAN, kita asumsikan ini untuk BULAN DAN TAHUN SAAT INI
             today = datetime.date.today()
             current_month = today.month
@@ -108,6 +101,7 @@ def read_all_sheets_gsheets():
             # Membuat DataFrame Raw Data Harian
             df_raw = pd.DataFrame()
             df_raw['tanggal'] = [f"{current_year}-{current_month:02d}-{int(day):02d}" for day in df_raw_data.index]
+            # Pastikan nama index parameter sesuai dengan Google Sheet (terutama 'suhu (°C)' dan 'Debit (l/d)')
             df_raw['pH'] = pd.to_numeric(df_raw_data['pH'], errors='coerce').values
             df_raw['suhu'] = pd.to_numeric(df_raw_data['suhu (°C)'], errors='coerce').values
             df_raw['debit'] = pd.to_numeric(df_raw_data['Debit (l/d)'], errors='coerce').values
@@ -134,69 +128,47 @@ def read_all_sheets_gsheets():
 
 def save_sheet_to_gsheets(lokasi: str, df_raw_data: pd.DataFrame):
     """
-    Menyimpan data RAW dari Python kembali ke format PIVOT di Google Sheets.
-    Fungsi ini HANYA menulis nilai harian (pH, suhu, debit) dan nilai rata-rata.
+    MENULIS ULANG FUNGSI INI DENGAN LOGIKA PENULISAN YANG LEBIH AKURAT.
     """
     read_all_sheets_gsheets.clear()
     
-    # 1. Filter Data Harian
+    # 1. Filter Data Harian dan Rata-rata
     df_data_only = df_raw_data[~df_raw_data["tanggal"].astype(str).str.startswith('Rata-rata', na=False)].copy()
     
-    # 2. Ambil Rata-rata Bulanan (HANYA satu baris, karena kita asumsikan per bulan)
-    df_avg_row = df_raw_data[df_raw_data["tanggal"].astype(str).str.startswith('Rata-rata', na=False)].iloc[0]
+    # Periksa dan ambil data rata-rata (hanya satu baris yang mengandung 'Rata-rata')
+    df_avg_rows = df_raw_data[df_raw_data["tanggal"].astype(str).str.startswith('Rata-rata', na=False)]
+    if df_avg_rows.empty:
+        # Jika tidak ada baris rata-rata yang terhitung, buat baris kosong
+        df_avg_row = pd.Series({'ph_rata_rata_bulan': np.nan, 'suhu_rata_rata_bulan': np.nan, 'debit_rata_rata_bulan': np.nan})
+    else:
+        df_avg_row = df_avg_rows.iloc[0]
     
-    # 3. Siapkan Nilai untuk Ditulis
-    # Kita butuh nilai harian per parameter (pH, suhu, debit)
-    
-    # Buat dictionary untuk menyimpan nilai per baris GSHEET
-    gsheet_data = {
-        'pH': {},
-        'suhu': {},
-        'debit': {}
-    }
-    
-    # Isi data harian (Kolom B sampai AE/AF)
-    for _, row in df_data_only.iterrows():
-        try:
-            day = pd.to_datetime(row['tanggal']).day
-            col_index = day + 1 # Kolom B adalah Hari 1, Kolom C adalah Hari 2
-            
-            # Format nilai yang akan ditulis (kosongkan jika NaN)
-            ph_val = "" if pd.isna(row['pH']) else float(row['pH'])
-            suhu_val = "" if pd.isna(row['suhu']) else float(row['suhu'])
-            debit_val = "" if pd.isna(row['debit']) else float(row['debit'])
-
-            gsheet_data['pH'][f"C{GSHEET_ROW_MAP['pH']}"[1] + str(day)] = ph_val
-            gsheet_data['suhu'][f"C{GSHEET_ROW_MAP['suhu']}"[1] + str(day)] = suhu_val
-            gsheet_data['debit'][f"C{GSHEET_ROW_MAP['debit']}"[1] + str(day)] = debit_val
-
-            # KITA HANYA AKAN MENGGUNAKAN write_batch untuk menulis data harian dan rata-rata
-
-        except:
-            continue
-            
-    # 4. Tulis Data (Batch Writing)
+    # 2. Siapkan Nilai untuk Ditulis
     data_to_write = []
+
+    # Map data harian ke Hari (index 1-31)
+    df_data_only['Hari'] = pd.to_datetime(df_data_only['tanggal']).dt.day
 
     # Tulis data harian (Baris 3, 4, 5)
     for parameter, row_num in GSHEET_ROW_MAP.items():
-        # Kolom B (Hari 1) sampai AE/AF (Hari 31)
+        # Buat dictionary Hari:Nilai untuk parameter ini
+        param_dict = df_data_only[['Hari', parameter]].set_index('Hari')[parameter].to_dict()
+        
+        # Tulis data harian (Kolom B sampai AF, Hari 1 sampai 31)
         for day in range(1, 32):
+            # xlsxwriter.utility.xl_col_to_name(day) mengembalikan B untuk day=1, C untuk day=2, dst.
             col_letter = xlsxwriter.utility.xl_col_to_name(day) 
-            range_addr = f"{col_letter}{row_num}"
             
-            # Coba ambil data hari tersebut. Jika tidak ada, nilainya kosong.
-            val = df_data_only[df_data_only['tanggal'].astype(str).str.split('-').str[2].str.split(' ').str[0].astype(int) == day].iloc[0][parameter] if day in [pd.to_datetime(t).day for t in df_data_only['tanggal'] if not pd.isna(t)] else ""
+            # Ambil nilai dari dictionary, jika tidak ada, gunakan "" (untuk menghapus sel kosong)
+            val = param_dict.get(day, "")
             
             data_to_write.append({
                 'range': f"{col_letter}{row_num}",
                 'values': [[val if not pd.isna(val) else ""]]
             })
 
-
-    # Tulis rata-rata (Asumsi Kolom AG/AF? - Kita asumsikan Kolom AH/AI)
-    # Karena kita TIDAK TAHU persis kolom rata-rata Anda, kita asumsikan Kolom AG (Kolom 33)
-    avg_col_letter = 'AG' 
+    # Tulis rata-rata (Asumsi Kolom AG - Kolom 33)
+    avg_col_letter = 'AG'
     
     data_to_write.append({
         'range': f"{avg_col_letter}{GSHEET_ROW_MAP['pH']}",
@@ -222,11 +194,9 @@ def save_sheet_to_gsheets(lokasi: str, df_raw_data: pd.DataFrame):
 # ----------------------------------------------------
 # FUNGSI MEMBUAT FILE EXCEL UNTUK DOWNLOAD DENGAN FORMAT PIVOT (TETAP)
 # ----------------------------------------------------
-# FUNGSI create_pivot_data dan create_excel_with_pivot_sheets DITEMPATKAN DI SINI (kode tidak berubah)
-
+# Fungsi create_pivot_data dan create_excel_with_pivot_sheets tidak diubah
 def create_pivot_data(df_raw, lokasi):
     """Memproses DataFrame mentah menjadi format pivot bulanan."""
-    # ... (KODE create_pivot_data ASLI ANDA) ...
     df_data_rows = df_raw[~df_raw["tanggal"].astype(str).str.startswith('Rata-rata', na=False)].copy()
     df_avg_rows = df_raw[df_raw["tanggal"].astype(str).str.startswith('Rata-rata', na=False)].copy()
 
@@ -279,7 +249,7 @@ def create_pivot_data(df_raw, lokasi):
             )
             df_pivot['Rata-rata'] = rata_rata_series
         else:
-             df_pivot['Rata-rata'] = np.nan
+            df_pivot['Rata-rata'] = np.nan
         
         df_pivot = df_pivot.rename(index={'pH': 'pH', 'suhu': 'Suhu (°C)', 'debit': 'Debit (l/d)'})
         df_pivot = df_pivot.reindex(['pH', 'Suhu (°C)', 'Debit (l/d)'])
@@ -292,7 +262,6 @@ def create_pivot_data(df_raw, lokasi):
 
 def create_excel_with_pivot_sheets(all_raw_sheets):
     """Membuat sheet pivot dengan border dan format yang diminta."""
-    # ... (KODE create_excel_with_pivot_sheets ASLI ANDA) ...
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
         
@@ -348,7 +317,7 @@ def create_excel_with_pivot_sheets(all_raw_sheets):
 
 
 # ----------------------------
-# Form input (TETAP SAMA)
+# Form input
 # ----------------------------
 if 'lokasi' not in st.session_state:
     st.session_state['lokasi'] = SHEET_NAMES[0]
@@ -443,7 +412,7 @@ if st.button("Simpan data"):
 
 
 # ----------------------------
-# Preview data (TETAP SAMA)
+# Preview data
 # ----------------------------
 st.markdown("---")
 st.subheader("Preview Data Lokasi Aktif (Format Bulanan)")
@@ -526,7 +495,7 @@ try:
                 )
                 df_pivot['Rata-rata'] = rata_rata_series
             else:
-                 df_pivot['Rata-rata'] = np.nan
+                df_pivot['Rata-rata'] = np.nan
             
             df_pivot.index.name = lokasi
             
@@ -546,7 +515,7 @@ except Exception as e:
         st.error(f"Gagal memproses data atau menampilkan format bulanan: {e}")
 
 # ----------------------------
-# Tombol download file Excel gabungan (TETAP SAMA)
+# Tombol download file Excel gabungan
 # ----------------------------
 st.markdown("---")
 st.subheader("Pengelolaan File Excel")
