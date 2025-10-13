@@ -6,10 +6,6 @@ import xlsxwriter
 import datetime
 import time 
 
-# ----------------------------
-
-# ----------------------------
-
 try:
     # 1. Gunakan koneksi Streamlit standar (mengandalkan secrets.toml yang sudah benar)
     conn = st.connection("gsheets") 
@@ -404,6 +400,7 @@ st.dataframe(
 
 
 st.caption("Catatan: Data di atas adalah hasil konversi dari format pivot Google Sheets Anda.")
+
 
 
 
