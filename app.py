@@ -17,7 +17,7 @@ try:
     conn = st.connection("gsheets", type="spreadsheet") 
     
 except KeyError:
-    # Kesalahan jika kunci di secrets.toml hilang
+    # Kesalahan jia kunci di secrets.toml hilang
     st.error("Gagal membaca 'spreadsheet_id' dari secrets.toml. Pastikan kunci [gsheets] dan [connections.gsheets] sudah dikonfigurasi di Streamlit Secrets.")
     st.stop()
 except Exception as e:
@@ -406,3 +406,4 @@ st.dataframe(
 
 
 st.caption("Catatan: Data di atas adalah hasil konversi dari format pivot Google Sheets Anda.")
+
