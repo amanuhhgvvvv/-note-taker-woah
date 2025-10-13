@@ -7,7 +7,7 @@ import datetime
 import time 
 
 # ----------------------------
-# KONFIGURASI GOOGLE SHEETS
+
 # ----------------------------
 
 try:
@@ -407,3 +407,4 @@ st.dataframe(
 
 
 st.caption("Catatan: Data di atas adalah hasil konversi dari format pivot Google Sheets Anda.")
+
