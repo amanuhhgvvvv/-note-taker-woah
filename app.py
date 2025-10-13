@@ -9,22 +9,33 @@ import time # Tambahkan untuk kebutuhan sleep/jeda
 # ----------------------------
 # KONFIGURASI GOOGLE SHEETS
 # ----------------------------
-# Dapatkan ID Spreadsheet dari secrets.toml
+
 try:
-    SHEET_ID = st.secrets["gsheets"]["spreadsheet_id"]
+    # 1. Inisialisasi Koneksi Streamlit (Ini akan menggunakan [connections.gsheets] di secrets.toml)
+    conn = st.connection("gsheets", type="spreadsheet")
+
+    # 2. Ambil SHEET_ID secara aman dari secrets.toml
+    # Menggunakan .get() untuk menghindari KeyError jika kunci 'gsheets' hilang
+    # Jika tidak ada, coba ambil dari [connections.gsheets] sebagai fallback
+    SHEET_ID = st.secrets.get("gsheets", {}).get("spreadsheet_id")
     
-    # Menggunakan st.connection() dengan type="spreadsheet"
-    conn = st.connection("gsheets", type="spreadsheet") 
+    # Fallback ke [connections.gsheets] jika [gsheets] tidak ada (meskipun sudah dikonfigurasi gsheets)
+    if not SHEET_ID:
+        SHEET_ID = st.secrets.get("connections.gsheets", {}).get("spreadsheet_id")
+
+    # Pengecekan akhir: jika SHEET_ID masih None
+    if not SHEET_ID:
+        raise ValueError("Kunci 'spreadsheet_id' tidak ditemukan.")
     
-except KeyError:
-    # Kesalahan jia kunci di secrets.toml hilang
-    st.error("Gagal membaca 'spreadsheet_id' dari secrets.toml. Pastikan kunci [gsheets] dan [connections.gsheets] sudah dikonfigurasi di Streamlit Secrets.")
-    st.stop()
 except Exception as e:
-    # Kesalahan inisialisasi koneksi (misalnya, masalah Service Account Key)
-    st.error(f"Gagal inisialisasi koneksi Google Sheets. Pastikan Service Account Key sudah benar di Streamlit Secrets. Error: {e}")
+    # Kesalahan akan tertangkap di sini jika 'spreadsheet_id' tidak ada (ValueError) 
+    # atau jika Service Account Key salah (Exception lain)
+    st.error("Gagal membaca 'spreadsheet_id' dari secrets.toml. Pastikan kunci [gsheets] dan [connections.gsheets] sudah dikonfigurasi di Streamlit Secrets. (Detail: " + str(e) + ")")
     st.stop()
     
+# ----------------------------------------------------
+# Sisa kode di bawah ini tidak berubah dari versi Anda
+# ----------------------------------------------------
 
 SHEET_NAMES = [
     "Power Plant",
@@ -47,7 +58,7 @@ INTERNAL_COLUMNS = ["tanggal", "pH", "suhu", "debit", "ph_rata_rata_bulan", "suh
 GSHEET_ROW_MAP = {
     'pH': 3,          
     'suhu': 4,        
-    'debit': 5,       
+    'debit': 5,        
 }
 # Kolom rata-rata di Google Sheet Anda (Kolom AG - Kolom 33 jika A=1)
 GSHEET_AVG_COL_INDEX = 33 
@@ -406,4 +417,3 @@ st.dataframe(
 
 
 st.caption("Catatan: Data di atas adalah hasil konversi dari format pivot Google Sheets Anda.")
-
