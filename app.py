@@ -4,48 +4,23 @@ import numpy as np
 import io
 import xlsxwriter
 import datetime
-import time # Tambahkan untuk kebutuhan sleep/jeda
+import time 
 
 # ----------------------------
 # KONFIGURASI GOOGLE SHEETS
 # ----------------------------
 
-# Fungsi untuk mencoba koneksi, dengan menangani kegagalan dependensi (seperti sqlalchemy)
-def get_gsheets_connection():
-    try:
-        # Pilihan 1: Coba koneksi default Streamlit
-        return st.connection("gsheets")
-    except Exception as e:
-        # Jika koneksi default gagal (misalnya karena 'sqlalchemy' tidak ada)
-        # Kita akan coba koneksi SQL, karena error sebelumnya menyarankan itu.
-        if "sqlalchemy" in str(e).lower():
-            try:
-                # Pilihan 2: Coba koneksi SQL, meskipun ini sering gagal
-                return st.connection("gsheets", type="sql")
-            except Exception as e_sql:
-                # Jika SQL gagal, biarkan fungsi conn mengembalikan error
-                raise e_sql
-        else:
-            raise e
-
 try:
-    # 1. Inisialisasi Koneksi menggunakan fungsi penanganan error
-    conn = get_gsheets_connection()
+    # 1. Gunakan koneksi Streamlit standar (mengandalkan secrets.toml yang sudah benar)
+    conn = st.connection("gsheets") 
 
     # 2. Ambil SHEET_ID secara aman dari secrets.toml
-    SHEET_ID = st.secrets.get("gsheets", {}).get("spreadsheet_id")
-    if not SHEET_ID:
-        SHEET_ID = st.secrets.get("connections.gsheets", {}).get("spreadsheet_id")
-
-    if not SHEET_ID:
-        raise ValueError("Kunci 'spreadsheet_id' tidak ditemukan.")
+    # Karena secrets.toml sudah diperbaiki, ini seharusnya berfungsi.
+    SHEET_ID = st.secrets["gsheets"]["spreadsheet_id"]
     
 except Exception as e:
-    # Tampilkan error jika gagal koneksi atau gagal membaca ID
-    st.error("Gagal membaca 'spreadsheet_id' atau koneksi gagal! Pastikan kunci [gsheets] sudah benar. (Detail: " + str(e) + ")")
-    # Jika errornya adalah sqlalchemy, berikan pesan yang jelas:
-    if "sqlalchemy" in str(e).lower():
-        st.warning("Pesan **'No module named sqlalchemy'** muncul karena lingkungan host aplikasi Anda mewajibkan library tersebut, meskipun aplikasi menggunakan Google Sheets. Ini adalah masalah dependensi lingkungan, bukan masalah kode Anda.")
+    # Tampilkan error jika gagal koneksi. Sekarang error ini akan lebih akurat.
+    st.error("Gagal koneksi! Pastikan file `.streamlit/secrets.toml` Anda sudah memiliki kunci 'type = \"gsheets\"' dan kunci Service Account lainnya. (Detail: " + str(e) + ")")
     st.stop()
     
 # ----------------------------------------------------
