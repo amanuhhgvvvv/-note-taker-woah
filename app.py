@@ -10,28 +10,42 @@ import time # Tambahkan untuk kebutuhan sleep/jeda
 # KONFIGURASI GOOGLE SHEETS
 # ----------------------------
 
+# Fungsi untuk mencoba koneksi, dengan menangani kegagalan dependensi (seperti sqlalchemy)
+def get_gsheets_connection():
+    try:
+        # Pilihan 1: Coba koneksi default Streamlit
+        return st.connection("gsheets")
+    except Exception as e:
+        # Jika koneksi default gagal (misalnya karena 'sqlalchemy' tidak ada)
+        # Kita akan coba koneksi SQL, karena error sebelumnya menyarankan itu.
+        if "sqlalchemy" in str(e).lower():
+            try:
+                # Pilihan 2: Coba koneksi SQL, meskipun ini sering gagal
+                return st.connection("gsheets", type="sql")
+            except Exception as e_sql:
+                # Jika SQL gagal, biarkan fungsi conn mengembalikan error
+                raise e_sql
+        else:
+            raise e
+
 try:
-    # 1. Inisialisasi Koneksi Streamlit. FIX: Mengubah ke type="sql" karena type="spreadsheet" 
-    # TIDAK didukung oleh environment Streamlit Anda (berdasarkan error terbaru).
-    conn = st.connection("gsheets", type="sql")
+    # 1. Inisialisasi Koneksi menggunakan fungsi penanganan error
+    conn = get_gsheets_connection()
 
     # 2. Ambil SHEET_ID secara aman dari secrets.toml
-    # Menggunakan .get() untuk menghindari KeyError jika kunci 'gsheets' hilang
-    # Jika tidak ada, coba ambil dari [connections.gsheets] sebagai fallback
     SHEET_ID = st.secrets.get("gsheets", {}).get("spreadsheet_id")
-    
-    # Fallback ke [connections.gsheets] jika [gsheets] tidak ada (meskipun sudah dikonfigurasi gsheets)
     if not SHEET_ID:
         SHEET_ID = st.secrets.get("connections.gsheets", {}).get("spreadsheet_id")
 
-    # Pengecekan akhir: jika SHEET_ID masih None
     if not SHEET_ID:
         raise ValueError("Kunci 'spreadsheet_id' tidak ditemukan.")
     
 except Exception as e:
-    # Kesalahan akan tertangkap di sini jika 'spreadsheet_id' tidak ada (ValueError) 
-    # atau jika Service Account Key salah (Exception lain)
-    st.error("Gagal membaca 'spreadsheet_id' dari secrets.toml. Pastikan kunci [gsheets] dan [connections.gsheets] sudah dikonfigurasi di Streamlit Secrets. (Detail: " + str(e) + ")")
+    # Tampilkan error jika gagal koneksi atau gagal membaca ID
+    st.error("Gagal membaca 'spreadsheet_id' atau koneksi gagal! Pastikan kunci [gsheets] sudah benar. (Detail: " + str(e) + ")")
+    # Jika errornya adalah sqlalchemy, berikan pesan yang jelas:
+    if "sqlalchemy" in str(e).lower():
+        st.warning("Pesan **'No module named sqlalchemy'** muncul karena lingkungan host aplikasi Anda mewajibkan library tersebut, meskipun aplikasi menggunakan Google Sheets. Ini adalah masalah dependensi lingkungan, bukan masalah kode Anda.")
     st.stop()
     
 # ----------------------------------------------------
@@ -418,4 +432,3 @@ st.dataframe(
 
 
 st.caption("Catatan: Data di atas adalah hasil konversi dari format pivot Google Sheets Anda.")
-
