@@ -13,14 +13,15 @@ import time # Tambahkan untuk kebutuhan sleep/jeda
 try:
     SHEET_ID = st.secrets["gsheets"]["spreadsheet_id"]
     
-    # PERBAIKAN: Menggunakan st.connection() dengan type="spreadsheet"
+    # Menggunakan st.connection() dengan type="spreadsheet"
     conn = st.connection("gsheets", type="spreadsheet") 
     
 except KeyError:
+    # Kesalahan jika kunci di secrets.toml hilang
     st.error("Gagal membaca 'spreadsheet_id' dari secrets.toml. Pastikan kunci [gsheets] dan [connections.gsheets] sudah dikonfigurasi di Streamlit Secrets.")
     st.stop()
 except Exception as e:
-    # Error ini sering muncul jika format secrets.toml salah, terutama private_key
+    # Kesalahan inisialisasi koneksi (misalnya, masalah Service Account Key)
     st.error(f"Gagal inisialisasi koneksi Google Sheets. Pastikan Service Account Key sudah benar di Streamlit Secrets. Error: {e}")
     st.stop()
     
@@ -61,20 +62,28 @@ st.title("📊 Pencatatan pH dan Debit Air (Data Permanen via Google Sheets)")
 @st.cache_data(ttl=5)
 def read_all_sheets_gsheets():
     """
-    Membaaca semua sheet dari Google Sheets dengan format PIVOT Anda 
-    dan mengkonversinya ke format RAW DATA (tanggal, pH, suhu, debit) untuk diproses.
+    Membaaca semua sheet dari Google Sheets dengan format PIVOT dan mengkonversinya 
+    ke format RAW DATA (tanggal, pH, suhu, debit) untuk diproses.
     """
     all_dfs_raw = {}
+    today = datetime.date.today()
+    current_month = today.month
+    current_year = today.year
+    
+    # Ambil hari ini untuk menentukan rentang hari yang valid
+    days_in_month = (datetime.date(current_year, current_month % 12 + 1, 1) - datetime.timedelta(days=1)).day if current_month < 12 else 31
+    
+    # Rentang A2 sampai kolom rata-rata (AG) dan baris 5.
+    GSHEET_RANGE = "A2:AG5" 
     
     for sheet_name in SHEET_NAMES:
         try:
-            # Baca data mentah, termasuk header baris 2 (Hari) dan kolom A (Parameter)
-            # Rentang A2:AG5 mencakup Hari ke-1 sampai 31 dan Kolom Rata-rata (dianggap AF atau AG)
+            # Baca data mentah, header baris 2 (Hari), kolom A (Parameter)
             df_pivot = conn.read(
                 spreadsheet=SHEET_ID, 
                 worksheet=sheet_name, 
-                range="A2:AG5", # DIUBAH ke AG5, karena AG adalah Kolom 33 (Rata-rata)
-                header=1,       # Baris 2 (Hari) dijadikan header
+                range=GSHEET_RANGE, 
+                header=1,
                 ttl=0
             )
 
@@ -83,11 +92,9 @@ def read_all_sheets_gsheets():
             df_pivot.set_index('Parameter', inplace=True)
             
             # 2. PENGAMBILAN RATA-RATA 
-            # Kolom rata-rata adalah kolom terakhir (indeks -1)
             avg_col_name = df_pivot.columns[-1] 
             
-            # Ambil data rata-rata bulanan
-            # PENTING: Pastikan penamaan indeks sesuai di GSheet Anda ('pH', 'suhu (°C)', 'Debit (l/d)')
+            # Ambil data rata-rata bulanan. Perlu pengecekan nama indeks yang eksak
             ph_avg = pd.to_numeric(df_pivot.loc['pH'].get(avg_col_name), errors='coerce')
             suhu_avg = pd.to_numeric(df_pivot.loc['suhu (°C)'].get(avg_col_name), errors='coerce') 
             debit_avg = pd.to_numeric(df_pivot.loc['Debit (l/d)'].get(avg_col_name), errors='coerce')
@@ -95,25 +102,30 @@ def read_all_sheets_gsheets():
             # Hapus kolom rata-rata dari data harian untuk diproses
             df_pivot_harian = df_pivot.drop(columns=[avg_col_name])
             
-            # 3. UN-PIVOT (Mengubah format pivot Anda menjadi format raw data)
+            # 3. UN-PIVOT (Mengubah format pivot menjadi format raw data)
             df_raw_data = df_pivot_harian.T # Transpose: Hari menjadi index
 
-            # UNTUK KEMUDAHAN, kita asumsikan ini untuk BULAN DAN TAHUN SAAT INI
-            today = datetime.date.today()
-            current_month = today.month
-            current_year = today.year
-            
             # Membuat DataFrame Raw Data Harian
             df_raw = pd.DataFrame()
-            # Hanya mengambil index yang berupa angka (hari 1-31)
-            numeric_days = [day for day in df_raw_data.index if isinstance(day, (int, np.integer)) or (isinstance(day, str) and day.isdigit())]
-
-            df_raw['tanggal'] = [f"{current_year}-{current_month:02d}-{int(day):02d}" for day in numeric_days]
-            df_raw['pH'] = pd.to_numeric(df_raw_data.loc[numeric_days, 'pH'], errors='coerce').values
-            df_raw['suhu'] = pd.to_numeric(df_raw_data.loc[numeric_days, 'suhu (°C)'], errors='coerce').values
-            df_raw['debit'] = pd.to_numeric(df_raw_data.loc[numeric_days, 'Debit (l/d)'], errors='coerce').values
             
-            # Tambahkan baris rata-rata bulanan
+            # Hanya mengambil index yang berupa angka (Hari 1-31)
+            numeric_days = [
+                int(day) for day in df_raw_data.index 
+                if isinstance(day, (int, np.integer)) 
+                or (isinstance(day, str) and day.isdigit())
+            ]
+            
+            # Filter hanya hari yang valid untuk bulan ini
+            valid_days = [day for day in numeric_days if day <= days_in_month]
+
+            df_raw['tanggal'] = [f"{current_year}-{current_month:02d}-{day:02d}" for day in valid_days]
+            
+            # Pastikan hanya mengambil kolom yang relevan dari data pivot (pH, suhu (°C), Debit (l/d))
+            df_raw['pH'] = pd.to_numeric(df_raw_data.loc[valid_days, 'pH'], errors='coerce').values
+            df_raw['suhu'] = pd.to_numeric(df_raw_data.loc[valid_days, 'suhu (°C)'], errors='coerce').values
+            df_raw['debit'] = pd.to_numeric(df_raw_data.loc[valid_days, 'Debit (l/d)'], errors='coerce').values
+            
+            # Tambahkan baris rata-rata bulanan di akhir
             avg_row = {
                 "tanggal": f"Rata-rata {current_month:02d}/{current_year}",
                 "pH": None,
@@ -128,7 +140,7 @@ def read_all_sheets_gsheets():
             all_dfs_raw[sheet_name] = df_raw.reindex(columns=INTERNAL_COLUMNS)
             
         except Exception as e:
-            st.warning(f"Gagal membaca sheet '{sheet_name}'. Pastikan format header Anda benar, nama parameter di kolom A adalah 'pH', 'suhu (°C)', dan 'Debit (l/d)', serta rentang data A2:AG5. Error: {e}")
+            st.warning(f"Gagal membaca sheet '{sheet_name}'. Pastikan format header Anda benar ('pH', 'suhu (°C)', 'Debit (l/d)') dan rentang data A2:AG5. Error: {e}")
             all_dfs_raw[sheet_name] = pd.DataFrame(columns=INTERNAL_COLUMNS)
             
     return all_dfs_raw
@@ -141,20 +153,23 @@ def save_sheet_to_gsheets(lokasi: str, df_raw_data: pd.DataFrame):
     # Hapus cache agar data terbaru dibaca setelah penulisan
     read_all_sheets_gsheets.clear()
     
-    # 1. Filter Data Harian dan Rata-rata
+    # 1. Filter Data Harian
+    # Pisahkan data harian dari baris rata-rata
     df_data_only = df_raw_data[~df_raw_data["tanggal"].astype(str).str.startswith('Rata-rata', na=False)].copy()
     
-    # Periksa dan ambil data rata-rata
+    # 2. Persiapan Nilai
+    
+    # Ambil baris rata-rata
     rata_rata_row = df_raw_data[df_raw_data["tanggal"].astype(str).str.startswith('Rata-rata', na=False)].iloc[0]
     
-    # 2. Persiapan Data untuk Ditulis ke Google Sheets
+    # Data harian dalam format list
     data_to_write = {
         'pH': df_data_only['pH'].tolist(),
         'suhu': df_data_only['suhu'].tolist(),
         'debit': df_data_only['debit'].tolist(),
     }
     
-    # Data Rata-rata Bulanan (Hanya untuk referensi internal, nilai ini tidak digunakan di sini)
+    # Data Rata-rata Bulanan
     data_avg = {
         'pH': rata_rata_row['ph_rata_rata_bulan'],
         'suhu': rata_rata_row['suhu_rata_rata_bulan'],
@@ -163,9 +178,8 @@ def save_sheet_to_gsheets(lokasi: str, df_raw_data: pd.DataFrame):
     
     # 3. Menulis Data Harian (Kolom B sampai AF, Baris 3, 4, 5)
     
-    # Kolom untuk hari (Kolom B hingga AF adalah kolom 2-32, total 31 hari)
-    # Data dimulai dari kolom B (index 2)
-    start_col_index = 2 # Kolom B
+    # Kolom B adalah index 2
+    start_col_index = 2 
     
     # Cek jumlah hari yang diinput (maksimal 31)
     num_days = len(df_data_only)
@@ -175,15 +189,17 @@ def save_sheet_to_gsheets(lokasi: str, df_raw_data: pd.DataFrame):
             # Tulis data harian (pH, Suhu, Debit)
             for param, row_index in GSHEET_ROW_MAP.items():
                 
-                # Tentukan rentang penulisan (misal: B3:AF3 untuk pH)
-                # Google Sheets API menggunakan notasi A1 (A=1, B=2, dst)
-                start_col_letter = chr(ord('A') + start_col_index - 1) 
-                end_col_letter = chr(ord('A') + start_col_index - 1 + num_days -1) # Hanya menulis sebanyak hari yang ada
+                # Menghitung kolom akhir (Misal: B + 31 hari = AF)
+                end_col_index = start_col_index + num_days - 1 
                 
-                # Rentang tulis untuk data harian
+                # Menggunakan chr(ord('A') + index - 1) untuk mendapatkan huruf kolom (A1 notation)
+                start_col_letter = chr(ord('A') + start_col_index - 1) 
+                end_col_letter = chr(ord('A') + end_col_index - 1) 
+                
+                # Rentang tulis untuk data harian (Misal: B3:AF3)
                 range_to_write_harian = f"{start_col_letter}{row_index}:{end_col_letter}{row_index}"
                 
-                # Data harus berbentuk list of lists (1xN)
+                # Tulis data. Data harus berbentuk list of lists (1xN)
                 data_list = [data_to_write[param]]
                 
                 conn.write(
@@ -199,18 +215,13 @@ def save_sheet_to_gsheets(lokasi: str, df_raw_data: pd.DataFrame):
             
             for param, row_index in GSHEET_ROW_MAP.items():
                 
-                # Tentukan nilai rata-rata yang sesuai
-                if param == 'pH':
-                    avg_value = rata_rata_row['ph_rata_rata_bulan']
-                elif param == 'suhu':
-                    avg_value = rata_rata_row['suhu_rata_rata_bulan']
-                elif param == 'debit':
-                    avg_value = rata_rata_row['debit_rata_rata_bulan']
+                # Ambil nilai rata-rata yang sesuai
+                avg_value = data_avg.get(param)
                 
-                # Rentang tulis untuk rata-rata (misal: AG3:AG3 untuk pH)
+                # Rentang tulis untuk rata-rata (Misal: AG3:AG3 untuk pH)
                 range_to_write_avg = f"{avg_col_letter}{row_index}:{avg_col_letter}{row_index}"
                 
-                # Data harus berbentuk list of lists (1x1)
+                # Tulis data rata-rata. Data harus berbentuk list of lists (1x1)
                 data_list_avg = [[avg_value]]
                 
                 conn.write(
@@ -225,8 +236,8 @@ def save_sheet_to_gsheets(lokasi: str, df_raw_data: pd.DataFrame):
             st.rerun() # Muat ulang aplikasi untuk menampilkan data terbaru
 
         except Exception as e:
-            st.error(f"❌ Gagal menyimpan data ke Google Sheets! Pastikan Anda memiliki izin Tulis (Write Access). Error: {e}")
-            print(f"Error detail: {e}") # Untuk debugging internal
+            st.error(f"❌ Gagal menyimpan data ke Google Sheets! Pastikan Anda memiliki izin Tulis (Write Access) dan format sheet tidak berubah. Error: {e}")
+            print(f"Error detail: {e}") 
             
 # ----------------------------
 # BAGIAN UTAMA APLIKASI STREAMLIT (ANTARMUKA PENGGUNA)
@@ -256,7 +267,7 @@ today_date = datetime.date.today()
 today_day = today_date.day
 
 # Cek apakah data untuk hari ini sudah ada
-is_day_recorded = any(pd.to_datetime(current_df['tanggal'], errors='coerce').dt.day == today_day)
+is_day_recorded = today_day in pd.to_datetime(current_df['tanggal'], errors='coerce').dt.day.values
 
 if is_day_recorded:
     st.info(f"Data untuk tanggal **{today_day}** sudah ada.")
@@ -265,10 +276,9 @@ if is_day_recorded:
 with st.form("input_form"):
     
     # Pilih Hari
-    # Filter hari yang sudah ada untuk memudahkan penggantian/update
     day_options = [day for day in range(1, 32)]
     
-    # Set default ke hari ini jika data belum dicatat
+    # Set default ke hari ini
     default_day_index = day_options.index(today_day)
     
     input_day = st.selectbox(
@@ -280,6 +290,13 @@ with st.form("input_form"):
     
     st.write(f"Tanggal lengkap yang akan dicatat: **{today_date.year}-{today_date.month:02d}-{input_day:02d}**")
 
+    # Ambil nilai default jika hari yang dipilih sudah ada datanya
+    existing_row = current_df[current_df['tanggal'].str.contains(f'-{input_day:02d}', na=False)]
+    
+    default_ph = existing_row['pH'].iloc[0] if not existing_row.empty and existing_row['pH'].iloc[0] else None
+    default_suhu = existing_row['suhu'].iloc[0] if not existing_row.empty and existing_row['suhu'].iloc[0] else None
+    default_debit = existing_row['debit'].iloc[0] if not existing_row.empty and existing_row['debit'].iloc[0] else None
+    
     col1, col2, col3 = st.columns(3)
     
     with col1:
@@ -288,7 +305,7 @@ with st.form("input_form"):
             min_value=0.0, max_value=14.0, 
             format="%.2f", step=0.01,
             key='input_ph',
-            value=None
+            value=default_ph
         )
     with col2:
         input_suhu = st.number_input(
@@ -296,7 +313,7 @@ with st.form("input_form"):
             min_value=0.0, max_value=100.0, 
             format="%.1f", step=0.1,
             key='input_suhu',
-            value=None
+            value=default_suhu
         )
     with col3:
         input_debit = st.number_input(
@@ -304,7 +321,7 @@ with st.form("input_form"):
             min_value=0.0, 
             format="%.2f", step=0.01,
             key='input_debit',
-            value=None
+            value=default_debit
         )
         
     submitted = st.form_submit_button("Simpan Data ke Google Sheets", type="primary")
@@ -314,7 +331,7 @@ with st.form("input_form"):
         if input_ph is None or input_suhu is None or input_debit is None:
             st.error("Mohon isi semua kolom (pH, Suhu, dan Debit) sebelum menyimpan.")
         else:
-            # 1. Siapkan Tanggal Target
+            # 1. Siapkan Tanggal Target (Format YYYY-MM-DD)
             target_date_str = f"{today_date.year}-{today_date.month:02d}-{input_day:02d}"
             
             # 2. Buat Row Baru
@@ -323,7 +340,6 @@ with st.form("input_form"):
                 'pH': input_ph, 
                 'suhu': input_suhu, 
                 'debit': input_debit, 
-                # Set rata-rata bulanan ke None saat update harian
                 'ph_rata_rata_bulan': None,
                 'suhu_rata_rata_bulan': None,
                 'debit_rata_rata_bulan': None
@@ -331,25 +347,27 @@ with st.form("input_form"):
             new_row_df = pd.DataFrame([new_data_row], columns=INTERNAL_COLUMNS)
             
             # 3. Gabungkan/Replace Data
-            # Logika Update/Tambah:
-            # Temukan baris rata-rata, simpan
+            # Pisahkan data harian dari baris rata-rata
             avg_row_df = current_df[current_df["tanggal"].astype(str).str.startswith('Rata-rata', na=False)].copy()
-            # Hapus baris rata-rata dari data harian
             data_harian_lama = current_df[~current_df["tanggal"].astype(str).str.startswith('Rata-rata', na=False)].copy()
             
-            # Update atau tambahkan data baru ke data harian lama
+            # Hapus baris lama yang sesuai dengan hari yang di-input
+            # Menggunakan .str.endswith untuk filter hari yang lebih akurat
+            data_harian_tanpa_hari_ini = data_harian_lama[
+                data_harian_lama['tanggal'].str.endswith(f'-{input_day:02d}', na=False) == False
+            ]
             
-            # Gantikan baris yang sesuai dengan hari yang di-input
-            # Kita menggunakan string.contains untuk menghindari masalah tipe data
-            date_filter = data_harian_lama['tanggal'].str.contains(f'-{input_day:02d}') == False
-            
+            # Gabungkan data lama yang sudah bersih dengan data baru
             updated_harian = pd.concat([
-                data_harian_lama[date_filter],
+                data_harian_tanpa_hari_ini,
                 new_row_df
             ]).sort_values(by='tanggal').reset_index(drop=True)
 
             # Gabungkan kembali dengan baris rata-rata
             final_df_to_save = pd.concat([updated_harian, avg_row_df]).reset_index(drop=True)
+            
+            # Pastikan semua kolom yang diperlukan ada
+            final_df_to_save = final_df_to_save.reindex(columns=INTERNAL_COLUMNS)
 
             # 4. Simpan ke Google Sheets
             save_sheet_to_gsheets(selected_sheet, final_df_to_save)
@@ -361,9 +379,12 @@ st.subheader("Tinjauan Data Saat Ini (Dari Google Sheets)")
 
 # Buat copy dataframe untuk tampilan
 display_df = current_df.copy()
+
 # Ganti nilai 'None' atau 'NaN' dengan string kosong untuk tampilan yang lebih bersih
-display_df.fillna('', inplace=True)
-display_df['tanggal'] = display_df['tanggal'].apply(lambda x: x.split('-')[-1] if x.count('-') == 2 else x)
+display_df.replace({np.nan: '', None: ''}, inplace=True)
+
+# Ubah kolom tanggal menjadi 'Hari' (hanya menampilkan angka hari)
+display_df['tanggal'] = display_df['tanggal'].apply(lambda x: str(x).split('-')[-1] if isinstance(x, str) and x.count('-') == 2 else x)
 
 # Ubah nama kolom untuk tampilan
 display_df.rename(columns={
