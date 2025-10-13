@@ -22,10 +22,7 @@ except Exception as e:
     # Tampilkan error jika gagal koneksi. Sekarang error ini akan lebih akurat.
     st.error("Gagal koneksi! Pastikan file `.streamlit/secrets.toml` Anda sudah memiliki kunci 'type = \"gsheets\"' dan kunci Service Account lainnya. (Detail: " + str(e) + ")")
     st.stop()
-    
-# ----------------------------------------------------
-# Sisa kode di bawah ini tidak berubah dari versi Anda
-# ----------------------------------------------------
+
 
 SHEET_NAMES = [
     "Power Plant",
@@ -407,5 +404,6 @@ st.dataframe(
 
 
 st.caption("Catatan: Data di atas adalah hasil konversi dari format pivot Google Sheets Anda.")
+
 
 
