@@ -34,7 +34,7 @@ SHEET_NAMES = [
     "Silika",
     "Kondensor PLTU"
 ]
-# Kolom pH, Suhu, dan Debit untuk LOGIKA INTERNAL PYTHON
+
 INTERNAL_COLUMNS = ["tanggal", "pH", "suhu", "debit", "ph_rata_rata_bulan", "suhu_rata_rata_bulan", "debit_rata_rata_bulan"]
 
 # Mapping baris di Google Sheet Anda (Baris 3, 4, 5)
@@ -400,6 +400,7 @@ st.dataframe(
 
 
 st.caption("Catatan: Data di atas adalah hasil konversi dari format pivot Google Sheets Anda.")
+
 
 
 
