@@ -47,7 +47,7 @@ GSHEET_ROW_MAP = {
     'suhu': 4,        
     'debit': 5,        
 }
-# Kolom rata-rata di Google Sheet Anda (Kolom AG - Kolom 33 jika A=1)
+
 GSHEET_AVG_COL_INDEX = 33 
 
 st.set_page_config(page_title="Pencatatan pH & Debit Air", layout="centered")
@@ -404,6 +404,7 @@ st.dataframe(
 
 
 st.caption("Catatan: Data di atas adalah hasil konversi dari format pivot Google Sheets Anda.")
+
 
 
 
