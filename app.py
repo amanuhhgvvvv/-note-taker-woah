@@ -11,8 +11,9 @@ import time # Tambahkan untuk kebutuhan sleep/jeda
 # ----------------------------
 
 try:
-    # 1. Inisialisasi Koneksi Streamlit (Ini akan menggunakan [connections.gsheets] di secrets.toml)
-    conn = st.connection("gsheets", type="spreadsheet")
+    # 1. Inisialisasi Koneksi Streamlit. DIUBAH: Menggunakan type="sql" 
+    # untuk mengatasi error "Invalid connection 'spreadsheet'" yang muncul di lingkungan tertentu.
+    conn = st.connection("gsheets", type="sql")
 
     # 2. Ambil SHEET_ID secara aman dari secrets.toml
     # Menggunakan .get() untuk menghindari KeyError jika kunci 'gsheets' hilang
