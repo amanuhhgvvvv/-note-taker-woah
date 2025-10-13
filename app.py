@@ -14,7 +14,7 @@ try:
     # 1. Gunakan koneksi Streamlit standar (mengandalkan secrets.toml yang sudah benar)
     conn = st.connection("gsheets") 
 
-    # 2. Ambil SHEET_ID secara aman dari secrets.toml
+    #
     # Karena secrets.toml sudah diperbaiki, ini seharusnya berfungsi.
     SHEET_ID = st.secrets["gsheets"]["spreadsheet_id"]
     
@@ -407,4 +407,5 @@ st.dataframe(
 
 
 st.caption("Catatan: Data di atas adalah hasil konversi dari format pivot Google Sheets Anda.")
+
 
