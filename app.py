@@ -12,7 +12,6 @@ from google.oauth2.service_account import Credentials
 @st.cache_resource
 def init_gsheets_connection():
     try:
-        # Ambil credentials dari secrets
         creds_dict = {
             "type": "service_account",
             "project_id": st.secrets["project_id"],
@@ -44,80 +43,124 @@ if client is None:
     st.stop()
 
 try:
-    # Ambil spreadsheet ID dari secrets
     SHEET_ID = st.secrets["SHEET_ID"]
 except Exception as e:
     st.error(f"❌ Gagal mengambil SHEET_ID dari secrets: {e}")
     st.stop()
 
-# KONFIGURASI YANG BENAR - SESUAI SHEET ANDA
-SHEET_NAME = "Rata-rata"  # ✅ Nama worksheet yang benar
-LOKASI_OPTIONS = [
-    "Power Plant", "Plan Garage", "Drain A", "Drain B", "Drain C", 
-    "WTP", "Coal Yard", "Domestik", "Limestone"
-]
-
-# MAPPING LOKASI - SESUAIKAN DENGAN STRUKTUR SHEET ANDA
-LOKASI_ROW_MAP = {
-    "Power Plant": {"pH": 3, "suhu": 4, "debit": 5},
-    "Plan Garage": {"pH": 7, "suhu": 8, "debit": 9},
-    "Drain A": {"pH": 11, "suhu": 12, "debit": 13},
-    "Drain B": {"pH": 15, "suhu": 16, "debit": 17},
-    "Drain C": {"pH": 19, "suhu": 20, "debit": 21},
-    "WTP": {"pH": 23, "suhu": 24, "debit": 25},
-    "Coal Yard": {"pH": 27, "suhu": 28, "debit": 29},
-    "Domestik": {"pH": 31, "suhu": 32, "debit": 33},
-    "Limestone": {"pH": 35, "suhu": 36, "debit": 37},
-}
+SHEET_NAME = "Rata-rata"
+LOKASI_OPTIONS = ["Power Plant", "Plan Garage", "Drain A", "Drain B", "Drain C", "WTP", "Coal Yard", "Domestik", "Limestone"]
 
 st.set_page_config(page_title="Monitoring Air", layout="centered")
 st.title("📊 Monitoring Air - Rata-rata")
 
 # ----------------------------
-# FUNGSI UTAMA - UNTUK SHEET "Rata-rata"
+# FUNGSI DEBUG - UNTUK MELIHAT STRUKTUR SHEET
 # ----------------------------
-def baca_data_dari_sheet():
-    """Membaca data dari sheet 'Rata-rata'"""
+def debug_sheet_structure():
+    """Debug fungsi untuk melihat struktur sheet sebenarnya"""
     try:
         spreadsheet = client.open_by_key(SHEET_ID)
-        worksheet = spreadsheet.worksheet(SHEET_NAME)  # ✅ Gunakan SHEET_NAME yang benar
+        worksheet = spreadsheet.worksheet(SHEET_NAME)
+        all_data = worksheet.get_all_values()
+        
+        st.sidebar.subheader("🔍 Debug Sheet Structure")
+        st.sidebar.write(f"Total baris: {len(all_data)}")
+        
+        # Tampilkan 20 baris pertama untuk analisis
+        st.sidebar.write("**20 Baris Pertama:**")
+        for i, row in enumerate(all_data[:20]):
+            # Tampilkan hanya 10 kolom pertama agar tidak terlalu panjang
+            st.sidebar.write(f"Baris {i+1}: {row[:10]}")
+        
+        return all_data
+    except Exception as e:
+        st.sidebar.error(f"Debug error: {e}")
+        return None
+
+# ----------------------------
+# FUNGSI UTAMA - FLEKSIBEL
+# ----------------------------
+def cari_struktur_lokasi_otomatis(debug_data):
+    """Mencari struktur lokasi secara otomatis dari data debug"""
+    if debug_data is None:
+        return {}
+    
+    lokasi_map = {}
+    current_lokasi = None
+    
+    for i, row in enumerate(debug_data):
+        baris_teks = ' '.join(str(cell) for cell in row[:5] if cell)  # Gabungkan 5 kolom pertama
+        
+        # Cari nama lokasi dalam baris
+        for lokasi in LOKASI_OPTIONS:
+            if lokasi.lower() in baris_teks.lower():
+                current_lokasi = lokasi
+                st.sidebar.info(f"📍 Ditemukan '{lokasi}' di baris {i+1}")
+                # Asumsikan 3 baris berikutnya adalah pH, suhu, debit
+                lokasi_map[lokasi] = {
+                    "pH": i + 2,  # Baris setelah nama lokasi
+                    "suhu": i + 3,
+                    "debit": i + 4
+                }
+                break
+    
+    return lokasi_map
+
+def baca_data_dari_sheet(lokasi_map):
+    """Membaca data dari sheet berdasarkan mapping"""
+    try:
+        spreadsheet = client.open_by_key(SHEET_ID)
+        worksheet = spreadsheet.worksheet(SHEET_NAME)
         all_data = worksheet.get_all_values()
         
         data_dict = {}
         
-        for lokasi, row_map in LOKASI_ROW_MAP.items():
+        for lokasi, row_map in lokasi_map.items():
             try:
-                # Data untuk 31 hari
                 pH_data = []
                 suhu_data = []
                 debit_data = []
                 
+                # Baca data untuk 31 hari (kolom B sampai AF)
                 for hari in range(31):
                     col_index = hari + 1  # Kolom B=1, C=2, ..., AF=31
                     
-                    # Baca data pH
+                    # Baca pH
+                    pH_val = None
                     if (row_map["pH"] - 1 < len(all_data) and 
                         col_index < len(all_data[row_map["pH"] - 1])):
-                        val = all_data[row_map["pH"] - 1][col_index]
-                        pH_data.append(float(val) if val and val.strip() else None)
-                    else:
-                        pH_data.append(None)
+                        cell_val = all_data[row_map["pH"] - 1][col_index]
+                        if cell_val and str(cell_val).strip() and str(cell_val).replace('.', '').isdigit():
+                            try:
+                                pH_val = float(cell_val)
+                            except:
+                                pH_val = None
+                    pH_data.append(pH_val)
                     
-                    # Baca data suhu
+                    # Baca suhu
+                    suhu_val = None
                     if (row_map["suhu"] - 1 < len(all_data) and 
                         col_index < len(all_data[row_map["suhu"] - 1])):
-                        val = all_data[row_map["suhu"] - 1][col_index]
-                        suhu_data.append(float(val) if val and val.strip() else None)
-                    else:
-                        suhu_data.append(None)
+                        cell_val = all_data[row_map["suhu"] - 1][col_index]
+                        if cell_val and str(cell_val).strip() and str(cell_val).replace('.', '').isdigit():
+                            try:
+                                suhu_val = float(cell_val)
+                            except:
+                                suhu_val = None
+                    suhu_data.append(suhu_val)
                     
-                    # Baca data debit
+                    # Baca debit
+                    debit_val = None
                     if (row_map["debit"] - 1 < len(all_data) and 
                         col_index < len(all_data[row_map["debit"] - 1])):
-                        val = all_data[row_map["debit"] - 1][col_index]
-                        debit_data.append(float(val) if val and val.strip() else None)
-                    else:
-                        debit_data.append(None)
+                        cell_val = all_data[row_map["debit"] - 1][col_index]
+                        if cell_val and str(cell_val).strip() and str(cell_val).replace('.', '').isdigit():
+                            try:
+                                debit_val = float(cell_val)
+                            except:
+                                debit_val = None
+                    debit_data.append(debit_val)
                 
                 # Buat DataFrame
                 today = datetime.date.today()
@@ -134,15 +177,6 @@ def baca_data_dari_sheet():
                 
             except Exception as e:
                 st.warning(f"Gagal baca data untuk {lokasi}: {e}")
-                # Buat dataframe kosong
-                today = datetime.date.today()
-                dates = [f"{today.year}-{today.month:02d}-{day:02d}" for day in range(1, 32)]
-                data_dict[lokasi] = pd.DataFrame({
-                    'tanggal': dates,
-                    'pH': [None] * 31,
-                    'suhu': [None] * 31,
-                    'debit': [None] * 31
-                })
         
         return data_dict
         
@@ -150,13 +184,13 @@ def baca_data_dari_sheet():
         st.error(f"❌ Gagal membaca data dari sheet: {e}")
         return {}
 
-def simpan_data_ke_sheet(lokasi, hari, pH, suhu, debit):
-    """Menyimpan data ke sheet 'Rata-rata'"""
+def simpan_data_ke_sheet(lokasi, hari, pH, suhu, debit, lokasi_map):
+    """Menyimpan data ke sheet"""
     try:
         spreadsheet = client.open_by_key(SHEET_ID)
-        worksheet = spreadsheet.worksheet(SHEET_NAME)  # ✅ Gunakan SHEET_NAME yang benar
+        worksheet = spreadsheet.worksheet(SHEET_NAME)
         
-        row_map = LOKASI_ROW_MAP.get(lokasi)
+        row_map = lokasi_map.get(lokasi)
         if not row_map:
             st.error(f"❌ Lokasi {lokasi} tidak ditemukan dalam mapping")
             return False
@@ -169,7 +203,7 @@ def simpan_data_ke_sheet(lokasi, hari, pH, suhu, debit):
         worksheet.update_cell(row_map["suhu"], col_index, suhu)
         worksheet.update_cell(row_map["debit"], col_index, debit)
         
-        st.success(f"✅ Data berhasil disimpan di {lokasi}, Hari {hari}")
+        st.success(f"✅ Data berhasil disimpan!")
         return True
         
     except Exception as e:
@@ -178,43 +212,54 @@ def simpan_data_ke_sheet(lokasi, hari, pH, suhu, debit):
 
 # ==================== BAGIAN UTAMA APLIKASI ====================
 
-# 1. SIDEBAR: Pilihan Lokasi
+# 1. DEBUG STRUCTURE
+debug_data = debug_sheet_structure()
+
+# 2. CARI STRUKTUR OTOMATIS
+lokasi_map = cari_struktur_lokasi_otomatis(debug_data)
+
+# Jika tidak ditemukan otomatis, gunakan mapping default
+if not lokasi_map:
+    st.warning("⚠️ Struktur tidak terdeteksi otomatis, menggunakan mapping default")
+    lokasi_map = {
+        "Power Plant": {"pH": 3, "suhu": 4, "debit": 5},
+        "Plan Garage": {"pH": 7, "suhu": 8, "debit": 9},
+        "Drain A": {"pH": 11, "suhu": 12, "debit": 13},
+    }
+
+# Tampilkan mapping yang digunakan
+st.sidebar.subheader("🗺️ Mapping yang Digunakan")
+for lokasi, mapping in lokasi_map.items():
+    st.sidebar.write(f"{lokasi}: pH={mapping['pH']}, suhu={mapping['suhu']}, debit={mapping['debit']}")
+
+# 3. SIDEBAR: Pilihan Lokasi
 st.sidebar.title("Pilihan Lokasi")
+available_lokasi = [lok for lok in LOKASI_OPTIONS if lok in lokasi_map]
+if not available_lokasi:
+    available_lokasi = LOKASI_OPTIONS
+
 selected_lokasi = st.sidebar.selectbox(
     "Pilih Lokasi yang Ingin Dicatat:",
-    options=LOKASI_OPTIONS,
+    options=available_lokasi,
     index=0 
 )
 
-# Debug helper
-if st.sidebar.button("🔧 Debug Connection"):
-    try:
-        spreadsheet = client.open_by_key(SHEET_ID)
-        worksheet = spreadsheet.worksheet(SHEET_NAME)
-        st.sidebar.success("✅ Terhubung ke Google Sheets!")
-        st.sidebar.write(f"Worksheet: {SHEET_NAME}")
-    except Exception as e:
-        st.sidebar.error(f"❌ Error: {e}")
-
-# 2. Muat Data
+# 4. MUAT DATA
 with st.spinner("Memuat data dari Google Sheets..."):
-    all_data = baca_data_dari_sheet()
+    all_data = baca_data_dari_sheet(lokasi_map)
 current_df = all_data.get(selected_lokasi, pd.DataFrame())
 
 # Tampilkan Status Lokasi
 st.subheader(f"📍 Lokasi: {selected_lokasi}")
 
-# 3. Input Data Baru
+# 5. INPUT DATA BARU
 st.markdown("---")
 st.header("📝 Catat Data Baru")
 
-# Dapatkan hari ini untuk input default
 today_date = datetime.date.today()
 today_day = today_date.day
 
 with st.form("input_form"):
-    
-    # Pilih Hari
     input_day = st.selectbox(
         "Pilih **Hari** untuk Pencatatan:",
         options=list(range(1, 32)),
@@ -223,69 +268,34 @@ with st.form("input_form"):
     
     st.write(f"Tanggal lengkap yang akan dicatat: **{today_date.year}-{today_date.month:02d}-{input_day:02d}**")
 
-    # Ambil nilai existing jika ada
-    existing_ph = existing_suhu = existing_debit = None
-    if not current_df.empty and input_day <= len(current_df):
-        existing_data = current_df.iloc[input_day - 1]
-        existing_ph = existing_data['pH'] if pd.notna(existing_data['pH']) else None
-        existing_suhu = existing_data['suhu'] if pd.notna(existing_data['suhu']) else None
-        existing_debit = existing_data['debit'] if pd.notna(existing_data['debit']) else None
-
     col1, col2, col3 = st.columns(3)
     
     with col1:
-        input_ph = st.number_input(
-            "Nilai pH", 
-            min_value=0.0, max_value=14.0, 
-            value=existing_ph if existing_ph is not None else 7.0,
-            step=0.1,
-            format="%.1f"
-        )
+        input_ph = st.number_input("Nilai pH", min_value=0.0, max_value=14.0, value=7.0, step=0.1, format="%.1f")
     with col2:
-        input_suhu = st.number_input(
-            "Suhu (°C)", 
-            min_value=0.0, max_value=100.0, 
-            value=existing_suhu if existing_suhu is not None else 25.0,
-            step=0.1,
-            format="%.1f"
-        )
+        input_suhu = st.number_input("Suhu (°C)", min_value=0.0, max_value=100.0, value=25.0, step=0.1, format="%.1f")
     with col3:
-        input_debit = st.number_input(
-            "Debit (l/d)", 
-            min_value=0.0,
-            value=existing_debit if existing_debit is not None else 0.0,
-            step=0.1,
-            format="%.1f"
-        )
+        input_debit = st.number_input("Debit (l/d)", min_value=0.0, value=0.0, step=0.1, format="%.1f")
         
     submitted = st.form_submit_button("💾 Simpan Data ke Google Sheets", type="primary")
 
     if submitted:
         with st.spinner("Menyimpan data..."):
-            success = simpan_data_ke_sheet(selected_lokasi, input_day, input_ph, input_suhu, input_debit)
+            success = simpan_data_ke_sheet(selected_lokasi, input_day, input_ph, input_suhu, input_debit, lokasi_map)
             if success:
                 time.sleep(2)
                 st.rerun()
 
-# 4. Tampilkan Data
+# 6. TAMPILKAN DATA
 st.markdown("---")
-st.subheader("📋 Data Saat Ini (Dari Google Sheets)")
+st.subheader("📋 Data Saat Ini")
 
 if not current_df.empty:
     display_df = current_df.copy()
     display_df['Hari'] = display_df['tanggal'].str.split('-').str[-1]
-    
-    # Format untuk display
-    display_df = display_df[['Hari', 'pH', 'suhu', 'debit']]
-    display_df = display_df.replace({np.nan: '', None: ''})
-    
-    st.dataframe(
-        display_df,
-        hide_index=True,
-        use_container_width=True,
-        height=400
-    )
+    display_df = display_df[['Hari', 'pH', 'suhu', 'debit']].replace({np.nan: ''})
+    st.dataframe(display_df, hide_index=True, use_container_width=True, height=400)
 else:
-    st.info("Belum ada data untuk lokasi ini.")
+    st.info("Belum ada data untuk lokasi ini atau terjadi error loading data.")
 
-st.caption("Aplikasi Monitoring Air - Worksheet: Rata-rata")
+st.caption("Aplikasi Monitoring Air")
