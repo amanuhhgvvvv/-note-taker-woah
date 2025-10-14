@@ -426,20 +426,34 @@ with st.form("input_form"):
             }
             new_row_df = pd.DataFrame([new_data_row], columns=INTERNAL_COLUMNS)
             
-            # Gabungkan/Replace Data
-            avg_row_df = current_df[current_df["tanggal"].astype(str).str.startswith('Rata-rata', na=False)].copy()
-            data_harian_lama = current_df[~current_df["tanggal"].astype(str).str.startswith('Rata-rata', na=False)].copy()
-            
-            data_harian_tanpa_hari_ini = data_harian_lama[
-                data_harian_lama['tanggal'].str.endswith(f'-{input_day:02d}', na=False) == False
-            ]
-            
-            updated_harian = pd.concat([
-                data_harian_tanpa_hari_ini,
-                new_row_df
-            ]).sort_values(by='tanggal').reset_index(drop=True)
+            # Gabungkan/Replace Data - PERBAIKAN: Handle DataFrame kosong
+            if not current_df.empty:
+                avg_row_df = current_df[current_df["tanggal"].astype(str).str.startswith('Rata-rata', na=False)].copy()
+                data_harian_lama = current_df[~current_df["tanggal"].astype(str).str.startswith('Rata-rata', na=False)].copy()
+                
+                data_harian_tanpa_hari_ini = data_harian_lama[
+                    data_harian_lama['tanggal'].str.endswith(f'-{input_day:02d}', na=False) == False
+                ]
+                
+                # PERBAIKAN: Pastikan semua DataFrame memiliki kolom yang sama sebelum concat
+                data_harian_tanpa_hari_ini = data_harian_tanpa_hari_ini.reindex(columns=INTERNAL_COLUMNS)
+                new_row_df = new_row_df.reindex(columns=INTERNAL_COLUMNS)
+                
+                updated_harian = pd.concat([
+                    data_harian_tanpa_hari_ini,
+                    new_row_df
+                ], ignore_index=True).sort_values(by='tanggal').reset_index(drop=True)
 
-            final_df_to_save = pd.concat([updated_harian, avg_row_df]).reset_index(drop=True)
+                # PERBAIKAN: Pastikan avg_row_df juga memiliki kolom yang sama
+                if not avg_row_df.empty:
+                    avg_row_df = avg_row_df.reindex(columns=INTERNAL_COLUMNS)
+                    final_df_to_save = pd.concat([updated_harian, avg_row_df], ignore_index=True)
+                else:
+                    final_df_to_save = updated_harian
+            else:
+                # Jika tidak ada data sebelumnya, buat data baru
+                final_df_to_save = new_row_df
+
             final_df_to_save = final_df_to_save.reindex(columns=INTERNAL_COLUMNS)
 
             # Simpan ke Google Sheets
@@ -463,10 +477,11 @@ display_df.rename(columns={
     'debit_rata_rata_bulan': 'Rata-rata Debit'
 }, inplace=True)
 
+# PERBAIKAN: Ganti use_container_width dengan width
 st.dataframe(
     display_df,
     hide_index=True,
-    use_container_width=True,
+    width='stretch',  # Ganti use_container_width=True
     height=400,
 )
 
