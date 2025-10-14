@@ -78,7 +78,7 @@ GSHEET_ROW_MAP = {
 GSHEET_AVG_COL_INDEX = 33 
 
 st.set_page_config(page_title="Monitoring Air", layout="centered")
-st.title("📊Monitoring Air")
+st.title("📊 Monitoring Air")
 
 # ----------------------------
 # Utility: baca & simpan sheet 
@@ -86,121 +86,121 @@ st.title("📊Monitoring Air")
 @st.cache_data(ttl=5)
 def read_all_sheets_gsheets():
     """
-    Membaca semua sheet dari Google Sheets - SESUAI FORMAT ANDA
+    Membaca semua sheet dari Google Sheets - VERSI LEBIH TOLERAN
     """
     all_dfs_raw = {}
     today = datetime.date.today()
     current_month = today.month
     current_year = today.year
     
-    # Ambil hari ini untuk menentukan rentang hari yang valid
     days_in_month = (datetime.date(current_year, current_month % 12 + 1, 1) - datetime.timedelta(days=1)).day if current_month < 12 else 31
-    
-    # PERUBAHAN: Rentang A1:AG5 sesuai format Google Sheets Anda
-    GSHEET_RANGE = "A1:AG5" 
     
     for sheet_name in SHEET_NAMES:
         try:
-            # BUKA SPREADSHEET DENGAN GSPREAD
+            # Buka spreadsheet
             spreadsheet = client.open_by_key(SHEET_ID)
-            worksheet = spreadsheet.worksheet(sheet_name)
             
-            # Baca data mentah
-            data = worksheet.get(GSHEET_RANGE)
+            # Cek apakah worksheet ada
+            try:
+                worksheet = spreadsheet.worksheet(sheet_name)
+            except gspread.exceptions.WorksheetNotFound:
+                # Buat dataframe kosong jika sheet tidak ada
+                all_dfs_raw[sheet_name] = pd.DataFrame(columns=INTERNAL_COLUMNS)
+                continue
             
-            # PERUBAHAN: Header sekarang di baris 1 (bukan baris 2)
-            df_pivot = pd.DataFrame(data[1:], columns=data[0])  # Baris pertama sebagai header
-
-            # 1. CLEANING & CONVERSION - SESUAI FORMAT "Satuan"
-            # PERUBAHAN: Kolom pertama bernama "Satuan" bukan "Parameter"
-            if df_pivot.empty or df_pivot.columns[0] != 'Satuan':
-                # Coba format alternatif
-                df_pivot.rename(columns={df_pivot.columns[0]: 'Parameter'}, inplace=True)
-            else:
-                df_pivot.rename(columns={'Satuan': 'Parameter'}, inplace=True)
+            # Baca data dengan range yang lebih aman
+            data = worksheet.get("A1:AG10")
+            
+            if not data or len(data) < 4:
+                # Sheet ada tapi kosong
+                all_dfs_raw[sheet_name] = pd.DataFrame(columns=INTERNAL_COLUMNS)
+                continue
+            
+            # Proses data dengan error handling yang lebih baik
+            try:
+                df_pivot = pd.DataFrame(data[1:], columns=data[0])
                 
-            df_pivot.set_index('Parameter', inplace=True)
-            
-            # 2. PENGAMBILAN RATA-RATA 
-            avg_col_name = df_pivot.columns[-1] 
-            
-            # PERUBAHAN: Gunakan nama parameter yang sesuai dengan sheet Anda
-            try:
-                ph_avg = pd.to_numeric(df_pivot.loc['pH'].get(avg_col_name), errors='coerce')
-            except:
-                ph_avg = None
+                # Handle nama kolom pertama
+                first_col = df_pivot.columns[0]
+                df_pivot.rename(columns={first_col: 'Parameter'}, inplace=True)
+                df_pivot.set_index('Parameter', inplace=True)
                 
-            try:
-                # PERUBAHAN: "suhu (oc)" bukan "suhu (°C)"
-                suhu_avg = pd.to_numeric(df_pivot.loc['suhu (oc)'].get(avg_col_name), errors='coerce')
-            except:
-                try:
-                    suhu_avg = pd.to_numeric(df_pivot.loc['suhu (°C)'].get(avg_col_name), errors='coerce')
-                except:
-                    suhu_avg = None
-                    
-            try:
-                debit_avg = pd.to_numeric(df_pivot.loc['Debit (l/d)'].get(avg_col_name), errors='coerce')
-            except:
-                debit_avg = None
-
-            # Hapus kolom rata-rata dari data harian untuk diproses
-            df_pivot_harian = df_pivot.drop(columns=[avg_col_name])
-            
-            # 3. UN-PIVOT (Mengubah format pivot menjadi format raw data)
-            df_raw_data = df_pivot_harian.T # Transpose: Hari menjadi index
-
-            # Membuat DataFrame Raw Data Harian
-            df_raw = pd.DataFrame()
-            
-            # Hanya mengambil index yang berupa angka (Hari 1-31)
-            numeric_days = [
-                int(day) for day in df_raw_data.index 
-                if isinstance(day, (int, np.integer)) 
-                or (isinstance(day, str) and day.isdigit())
-            ]
-            
-            # Filter hanya hari yang valid untuk bulan ini
-            valid_days = [day for day in numeric_days if day <= days_in_month]
-
-            df_raw['tanggal'] = [f"{current_year}-{current_month:02d}-{day:02d}" for day in valid_days]
-            
-            # PERUBAHAN: Ambil data dengan nama parameter yang fleksibel
-            try:
-                df_raw['pH'] = pd.to_numeric(df_raw_data.loc[valid_days, 'pH'], errors='coerce').values
-            except:
-                df_raw['pH'] = [None] * len(valid_days)
+                # Cari parameter yang ada (case insensitive dan flexible)
+                available_params = [str(param).lower() for param in df_pivot.index]
                 
-            try:
-                # Coba "suhu (oc)" dulu, lalu "suhu (°C)"
-                df_raw['suhu'] = pd.to_numeric(df_raw_data.loc[valid_days, 'suhu (oc)'], errors='coerce').values
-            except:
-                try:
-                    df_raw['suhu'] = pd.to_numeric(df_raw_data.loc[valid_days, 'suhu (°C)'], errors='coerce').values
-                except:
+                # Cari parameter pH
+                ph_param = None
+                if 'ph' in available_params:
+                    ph_param = df_pivot.index[available_params.index('ph')]
+                
+                # Cari parameter suhu
+                suhu_param = None
+                for pattern in ['suhu (oc)', 'suhu (°c)', 'suhu']:
+                    if any(pattern.lower() in param for param in available_params):
+                        suhu_param = df_pivot.index[[pattern.lower() in param for param in available_params].index(True)]
+                        break
+                
+                # Cari parameter debit
+                debit_param = None
+                for pattern in ['debit (l/d)', 'debit']:
+                    if any(pattern.lower() in param for param in available_params):
+                        debit_param = df_pivot.index[[pattern.lower() in param for param in available_params].index(True)]
+                        break
+                
+                # Ambil data rata-rata jika parameter ditemukan
+                avg_col_name = df_pivot.columns[-1] if len(df_pivot.columns) > 0 else None
+                
+                ph_avg = pd.to_numeric(df_pivot.loc[ph_param].get(avg_col_name), errors='coerce') if ph_param else None
+                suhu_avg = pd.to_numeric(df_pivot.loc[suhu_param].get(avg_col_name), errors='coerce') if suhu_param else None
+                debit_avg = pd.to_numeric(df_pivot.loc[debit_param].get(avg_col_name), errors='coerce') if debit_param else None
+                
+                # Hapus kolom rata-rata
+                df_pivot_harian = df_pivot.drop(columns=[avg_col_name]) if avg_col_name else df_pivot
+                
+                # UN-PIVOT data
+                df_raw_data = df_pivot_harian.T
+                
+                # Buat DataFrame Raw Data Harian
+                df_raw = pd.DataFrame()
+                
+                # Ambil hari yang valid (1-31)
+                valid_days = [day for day in range(1, min(32, days_in_month + 1))]
+                df_raw['tanggal'] = [f"{current_year}-{current_month:02d}-{day:02d}" for day in valid_days]
+                
+                # Ambil data jika parameter ada
+                if ph_param and ph_param in df_raw_data.columns:
+                    df_raw['pH'] = pd.to_numeric(df_raw_data.loc[valid_days, ph_param], errors='coerce').values
+                else:
+                    df_raw['pH'] = [None] * len(valid_days)
+                
+                if suhu_param and suhu_param in df_raw_data.columns:
+                    df_raw['suhu'] = pd.to_numeric(df_raw_data.loc[valid_days, suhu_param], errors='coerce').values
+                else:
                     df_raw['suhu'] = [None] * len(valid_days)
-                    
-            try:
-                df_raw['debit'] = pd.to_numeric(df_raw_data.loc[valid_days, 'Debit (l/d)'], errors='coerce').values
-            except:
-                df_raw['debit'] = [None] * len(valid_days)
-            
-            # Tambahkan baris rata-rata bulanan di akhir
-            avg_row = {
-                "tanggal": f"Rata-rata {current_month:02d}/{current_year}",
-                "pH": None,
-                "suhu": None,
-                "debit": None,
-                "ph_rata_rata_bulan": ph_avg,
-                "suhu_rata_rata_bulan": suhu_avg,
-                "debit_rata_rata_bulan": debit_avg
-            }
-            df_raw = pd.concat([df_raw, pd.DataFrame([avg_row])], ignore_index=True)
-            
-            all_dfs_raw[sheet_name] = df_raw.reindex(columns=INTERNAL_COLUMNS)
+                
+                if debit_param and debit_param in df_raw_data.columns:
+                    df_raw['debit'] = pd.to_numeric(df_raw_data.loc[valid_days, debit_param], errors='coerce').values
+                else:
+                    df_raw['debit'] = [None] * len(valid_days)
+                
+                # Tambahkan baris rata-rata
+                avg_row = {
+                    "tanggal": f"Rata-rata {current_month:02d}/{current_year}",
+                    "pH": None, "suhu": None, "debit": None,
+                    "ph_rata_rata_bulan": ph_avg,
+                    "suhu_rata_rata_bulan": suhu_avg,
+                    "debit_rata_rata_bulan": debit_avg
+                }
+                df_raw = pd.concat([df_raw, pd.DataFrame([avg_row])], ignore_index=True)
+                
+                all_dfs_raw[sheet_name] = df_raw.reindex(columns=INTERNAL_COLUMNS)
+                
+            except Exception as processing_error:
+                # Jika ada error processing, buat dataframe kosong
+                all_dfs_raw[sheet_name] = pd.DataFrame(columns=INTERNAL_COLUMNS)
             
         except Exception as e:
-            st.warning(f"Gagal membaca sheet '{sheet_name}'. Error: {e}")
+            # Jika ada error utama, buat dataframe kosong
             all_dfs_raw[sheet_name] = pd.DataFrame(columns=INTERNAL_COLUMNS)
             
     return all_dfs_raw
@@ -253,9 +253,8 @@ def save_sheet_to_gsheets(lokasi: str, df_raw_data: pd.DataFrame):
                 # Range untuk data harian
                 range_to_write_harian = f"{start_col_letter}{row_index}:{end_col_letter}{row_index}"
                 
-                # PERUBAHAN: Tulis data dengan cara yang lebih sederhana
+                # Tulis data
                 values = data_to_write[param]
-                # Update range sekaligus
                 cell_range = worksheet.range(range_to_write_harian)
                 for i, cell in enumerate(cell_range):
                     if i < len(values):
@@ -269,7 +268,6 @@ def save_sheet_to_gsheets(lokasi: str, df_raw_data: pd.DataFrame):
                 avg_value = data_avg.get(param)
                 if pd.notna(avg_value):
                     range_to_write_avg = f"{avg_col_letter}{row_index}"
-                    # Tulis nilai rata-rata
                     worksheet.update_acell(range_to_write_avg, avg_value)
             
             st.success(f"✅ Data berhasil disimpan dan diupdate di Google Sheet: **{lokasi}**!")
@@ -279,9 +277,7 @@ def save_sheet_to_gsheets(lokasi: str, df_raw_data: pd.DataFrame):
         except Exception as e:
             st.error(f"❌ Gagal menyimpan data ke Google Sheets! Error: {e}")
 
-# ----------------------------
-# BAGIAN UTAMA APLIKASI STREAMLIT (TIDAK BERUBAH)
-# ----------------------------
+# ==================== BAGIAN UTAMA APLIKASI (TIDAK BERUBAH) ====================
 
 # 1. SIDEBAR: Pilihan Lokasi
 st.sidebar.title("Pilihan Lokasi")
@@ -426,4 +422,3 @@ st.dataframe(
 )
 
 st.caption("Catatan: Data di atas adalah hasil konversi dari format pivot Google Sheets Anda.")
-
