@@ -211,71 +211,89 @@ def save_sheet_to_gsheets(lokasi: str, df_raw_data: pd.DataFrame):
     """
     read_all_sheets_gsheets.clear()
     
-    # 1. Filter Data Harian
-    df_data_only = df_raw_data[~df_raw_data["tanggal"].astype(str).str.startswith('Rata-rata', na=False)].copy()
-    
-    # 2. Persiapan Nilai
-    rata_rata_row = df_raw_data[df_raw_data["tanggal"].astype(str).str.startswith('Rata-rata', na=False)].iloc[0]
-    
-    # Data harian dalam format list
-    data_to_write = {
-        'pH': df_data_only['pH'].tolist(),
-        'suhu': df_data_only['suhu'].tolist(),
-        'debit': df_data_only['debit'].tolist(),
-    }
-    
-    # Data Rata-rata Bulanan
-    data_avg = {
-        'pH': rata_rata_row['ph_rata_rata_bulan'],
-        'suhu': rata_rata_row['suhu_rata_rata_bulan'],
-        'debit': rata_rata_row['debit_rata_rata_bulan'],
-    }
-    
-    # 3. Menulis Data ke Google Sheets dengan GSPREAD
-    start_col_index = 2  # Kolom B adalah index 2
-    num_days = len(df_data_only)
-    
-    with st.spinner(f"Menyimpan data ke sheet '{lokasi}'..."):
-        try:
-            # Buka worksheet
-            spreadsheet = client.open_by_key(SHEET_ID)
-            worksheet = spreadsheet.worksheet(lokasi)
-            
-            # Tulis data harian (pH, Suhu, Debit)
-            for param, row_index in GSHEET_ROW_MAP.items():
-                # Hitung range kolom
-                end_col_index = start_col_index + num_days - 1 
+    try:
+        # 1. Filter Data Harian - PERBAIKAN: gunakan copy() untuk menghindari warning
+        df_data_only = df_raw_data[~df_raw_data["tanggal"].astype(str).str.startswith('Rata-rata', na=False)].copy()
+        
+        # 2. Persiapan Nilai - PERBAIKAN: tambahkan pengecekan untuk baris rata-rata
+        rata_rata_rows = df_raw_data[df_raw_data["tanggal"].astype(str).str.startswith('Rata-rata', na=False)]
+        
+        # PERBAIKAN PENTING: Cek apakah ada baris rata-rata sebelum mengakses
+        if rata_rata_rows.empty:
+            st.warning("⚠️ Tidak ditemukan baris rata-rata dalam data. Menggunakan nilai default.")
+            data_avg = {
+                'pH': None,
+                'suhu': None,
+                'debit': None,
+            }
+        else:
+            rata_rata_row = rata_rata_rows.iloc[0]
+            # Data Rata-rata Bulanan
+            data_avg = {
+                'pH': rata_rata_row.get('ph_rata_rata_bulan'),
+                'suhu': rata_rata_row.get('suhu_rata_rata_bulan'),
+                'debit': rata_rata_row.get('debit_rata_rata_bulan'),
+            }
+        
+        # Data harian dalam format list - PERBAIKAN: handle nilai NaN
+        data_to_write = {
+            'pH': df_data_only['pH'].fillna('').tolist(),
+            'suhu': df_data_only['suhu'].fillna('').tolist(),
+            'debit': df_data_only['debit'].fillna('').tolist(),
+        }
+        
+        # 3. Menulis Data ke Google Sheets dengan GSPREAD
+        start_col_index = 2  # Kolom B adalah index 2
+        num_days = len(df_data_only)
+        
+        with st.spinner(f"Menyimpan data ke sheet '{lokasi}'..."):
+            try:
+                # Buka worksheet
+                spreadsheet = client.open_by_key(SHEET_ID)
+                worksheet = spreadsheet.worksheet(lokasi)
                 
-                # Konversi index ke huruf kolom
-                start_col_letter = chr(ord('A') + start_col_index - 1) 
-                end_col_letter = chr(ord('A') + end_col_index - 1) 
-                
-                # Range untuk data harian
-                range_to_write_harian = f"{start_col_letter}{row_index}:{end_col_letter}{row_index}"
-                
-                # Tulis data
-                values = data_to_write[param]
-                cell_range = worksheet.range(range_to_write_harian)
-                for i, cell in enumerate(cell_range):
-                    if i < len(values):
-                        cell.value = values[i] if pd.notna(values[i]) else ""
-                worksheet.update_cells(cell_range)
+                # Tulis data harian (pH, Suhu, Debit)
+                for param, row_index in GSHEET_ROW_MAP.items():
+                    # Hitung range kolom
+                    end_col_index = start_col_index + num_days - 1 
+                    
+                    # Konversi index ke huruf kolom
+                    start_col_letter = chr(ord('A') + start_col_index - 1) 
+                    end_col_letter = chr(ord('A') + end_col_index - 1) 
+                    
+                    # Range untuk data harian
+                    range_to_write_harian = f"{start_col_letter}{row_index}:{end_col_letter}{row_index}"
+                    
+                    # Tulis data
+                    values = data_to_write[param]
+                    cell_range = worksheet.range(range_to_write_harian)
+                    for i, cell in enumerate(cell_range):
+                        if i < len(values):
+                            cell.value = values[i] if pd.notna(values[i]) and values[i] != '' else ""
+                    worksheet.update_cells(cell_range)
 
-            # 4. Menulis Data Rata-rata
-            avg_col_letter = chr(ord('A') + GSHEET_AVG_COL_INDEX - 1) # AG
-            
-            for param, row_index in GSHEET_ROW_MAP.items():
-                avg_value = data_avg.get(param)
-                if pd.notna(avg_value):
-                    range_to_write_avg = f"{avg_col_letter}{row_index}"
-                    worksheet.update_acell(range_to_write_avg, avg_value)
-            
-            st.success(f"✅ Data berhasil disimpan dan diupdate di Google Sheet: **{lokasi}**!")
-            time.sleep(1)
-            st.rerun()
+                # 4. Menulis Data Rata-rata - PERBAIKAN: hanya tulis jika nilai tidak None
+                avg_col_letter = chr(ord('A') + GSHEET_AVG_COL_INDEX - 1) # AG
+                
+                for param, row_index in GSHEET_ROW_MAP.items():
+                    avg_value = data_avg.get(param)
+                    if pd.notna(avg_value) and avg_value is not None:
+                        range_to_write_avg = f"{avg_col_letter}{row_index}"
+                        worksheet.update_acell(range_to_write_avg, avg_value)
+                    else:
+                        # Kosongkan sel jika tidak ada nilai
+                        range_to_write_avg = f"{avg_col_letter}{row_index}"
+                        worksheet.update_acell(range_to_write_avg, "")
+                
+                st.success(f"✅ Data berhasil disimpan dan diupdate di Google Sheet: **{lokasi}**!")
+                time.sleep(1)
+                st.rerun()
 
-        except Exception as e:
-            st.error(f"❌ Gagal menyimpan data ke Google Sheets! Error: {e}")
+            except Exception as e:
+                st.error(f"❌ Gagal menyimpan data ke Google Sheets! Error: {e}")
+    
+    except Exception as e:
+        st.error(f"❌ Error dalam proses penyimpanan: {e}")
 
 # ==================== BAGIAN UTAMA APLIKASI (TIDAK BERUBAH) ====================
 
@@ -327,9 +345,9 @@ with st.form("input_form"):
     # Ambil nilai default jika hari yang dipilih sudah ada datanya
     existing_row = current_df[current_df['tanggal'].str.contains(f'-{input_day:02d}', na=False)]
     
-    default_ph = existing_row['pH'].iloc[0] if not existing_row.empty and existing_row['pH'].iloc[0] else None
-    default_suhu = existing_row['suhu'].iloc[0] if not existing_row.empty and existing_row['suhu'].iloc[0] else None
-    default_debit = existing_row['debit'].iloc[0] if not existing_row.empty and existing_row['debit'].iloc[0] else None
+    default_ph = existing_row['pH'].iloc[0] if not existing_row.empty and pd.notna(existing_row['pH'].iloc[0]) else None
+    default_suhu = existing_row['suhu'].iloc[0] if not existing_row.empty and pd.notna(existing_row['suhu'].iloc[0]) else None
+    default_debit = existing_row['debit'].iloc[0] if not existing_row.empty and pd.notna(existing_row['debit'].iloc[0]) else None
     
     col1, col2, col3 = st.columns(3)
     
