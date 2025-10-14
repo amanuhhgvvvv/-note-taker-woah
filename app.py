@@ -17,7 +17,7 @@ def init_gsheets_connection():
             "type": "service_account",
             "project_id": st.secrets["project_id"],
             "private_key_id": st.secrets["private_key_id"], 
-            "private_key": st.secrets["private_key"].replace("\\n", "\n"),
+            "private_key": st.secrets["private_key"],
             "client_email": st.secrets["client_email"],
             "client_id": st.secrets["client_id"],
             "auth_uri": "https://accounts.google.com/o/oauth2/auth",
@@ -86,8 +86,7 @@ st.title("📊 Pencatatan pH dan Debit Air (Data Permanen via Google Sheets)")
 @st.cache_data(ttl=5)
 def read_all_sheets_gsheets():
     """
-    Membaca semua sheet dari Google Sheets dengan format PIVOT dan mengkonversinya 
-    ke format RAW DATA (tanggal, pH, suhu, debit) untuk diproses.
+    Membaca semua sheet dari Google Sheets - SESUAI FORMAT ANDA
     """
     all_dfs_raw = {}
     today = datetime.date.today()
@@ -97,8 +96,8 @@ def read_all_sheets_gsheets():
     # Ambil hari ini untuk menentukan rentang hari yang valid
     days_in_month = (datetime.date(current_year, current_month % 12 + 1, 1) - datetime.timedelta(days=1)).day if current_month < 12 else 31
     
-    # Rentang A2 sampai kolom rata-rata (AG) dan baris 5.
-    GSHEET_RANGE = "A2:AG5" 
+    # PERUBAHAN: Rentang A1:AG5 sesuai format Google Sheets Anda
+    GSHEET_RANGE = "A1:AG5" 
     
     for sheet_name in SHEET_NAMES:
         try:
@@ -108,19 +107,42 @@ def read_all_sheets_gsheets():
             
             # Baca data mentah
             data = worksheet.get(GSHEET_RANGE)
+            
+            # PERUBAHAN: Header sekarang di baris 1 (bukan baris 2)
             df_pivot = pd.DataFrame(data[1:], columns=data[0])  # Baris pertama sebagai header
 
-            # 1. CLEANING & CONVERSION
-            df_pivot.rename(columns={df_pivot.columns[0]: 'Parameter'}, inplace=True)
+            # 1. CLEANING & CONVERSION - SESUAI FORMAT "Satuan"
+            # PERUBAHAN: Kolom pertama bernama "Satuan" bukan "Parameter"
+            if df_pivot.empty or df_pivot.columns[0] != 'Satuan':
+                # Coba format alternatif
+                df_pivot.rename(columns={df_pivot.columns[0]: 'Parameter'}, inplace=True)
+            else:
+                df_pivot.rename(columns={'Satuan': 'Parameter'}, inplace=True)
+                
             df_pivot.set_index('Parameter', inplace=True)
             
             # 2. PENGAMBILAN RATA-RATA 
             avg_col_name = df_pivot.columns[-1] 
             
-            # Ambil data rata-rata bulanan
-            ph_avg = pd.to_numeric(df_pivot.loc['pH'].get(avg_col_name), errors='coerce')
-            suhu_avg = pd.to_numeric(df_pivot.loc['suhu (°C)'].get(avg_col_name), errors='coerce') 
-            debit_avg = pd.to_numeric(df_pivot.loc['Debit (l/d)'].get(avg_col_name), errors='coerce')
+            # PERUBAHAN: Gunakan nama parameter yang sesuai dengan sheet Anda
+            try:
+                ph_avg = pd.to_numeric(df_pivot.loc['pH'].get(avg_col_name), errors='coerce')
+            except:
+                ph_avg = None
+                
+            try:
+                # PERUBAHAN: "suhu (oc)" bukan "suhu (°C)"
+                suhu_avg = pd.to_numeric(df_pivot.loc['suhu (oc)'].get(avg_col_name), errors='coerce')
+            except:
+                try:
+                    suhu_avg = pd.to_numeric(df_pivot.loc['suhu (°C)'].get(avg_col_name), errors='coerce')
+                except:
+                    suhu_avg = None
+                    
+            try:
+                debit_avg = pd.to_numeric(df_pivot.loc['Debit (l/d)'].get(avg_col_name), errors='coerce')
+            except:
+                debit_avg = None
 
             # Hapus kolom rata-rata dari data harian untuk diproses
             df_pivot_harian = df_pivot.drop(columns=[avg_col_name])
@@ -143,10 +165,25 @@ def read_all_sheets_gsheets():
 
             df_raw['tanggal'] = [f"{current_year}-{current_month:02d}-{day:02d}" for day in valid_days]
             
-            # Pastikan hanya mengambil kolom yang relevan dari data pivot (pH, suhu (°C), Debit (l/d))
-            df_raw['pH'] = pd.to_numeric(df_raw_data.loc[valid_days, 'pH'], errors='coerce').values
-            df_raw['suhu'] = pd.to_numeric(df_raw_data.loc[valid_days, 'suhu (°C)'], errors='coerce').values
-            df_raw['debit'] = pd.to_numeric(df_raw_data.loc[valid_days, 'Debit (l/d)'], errors='coerce').values
+            # PERUBAHAN: Ambil data dengan nama parameter yang fleksibel
+            try:
+                df_raw['pH'] = pd.to_numeric(df_raw_data.loc[valid_days, 'pH'], errors='coerce').values
+            except:
+                df_raw['pH'] = [None] * len(valid_days)
+                
+            try:
+                # Coba "suhu (oc)" dulu, lalu "suhu (°C)"
+                df_raw['suhu'] = pd.to_numeric(df_raw_data.loc[valid_days, 'suhu (oc)'], errors='coerce').values
+            except:
+                try:
+                    df_raw['suhu'] = pd.to_numeric(df_raw_data.loc[valid_days, 'suhu (°C)'], errors='coerce').values
+                except:
+                    df_raw['suhu'] = [None] * len(valid_days)
+                    
+            try:
+                df_raw['debit'] = pd.to_numeric(df_raw_data.loc[valid_days, 'Debit (l/d)'], errors='coerce').values
+            except:
+                df_raw['debit'] = [None] * len(valid_days)
             
             # Tambahkan baris rata-rata bulanan di akhir
             avg_row = {
@@ -163,7 +200,7 @@ def read_all_sheets_gsheets():
             all_dfs_raw[sheet_name] = df_raw.reindex(columns=INTERNAL_COLUMNS)
             
         except Exception as e:
-            st.warning(f"Gagal membaca sheet '{sheet_name}'. Pastikan format header Anda benar ('pH', 'suhu (°C)', 'Debit (l/d)') dan rentang data A2:AG5. Error: {e}")
+            st.warning(f"Gagal membaca sheet '{sheet_name}'. Error: {e}")
             all_dfs_raw[sheet_name] = pd.DataFrame(columns=INTERNAL_COLUMNS)
             
     return all_dfs_raw
@@ -216,22 +253,24 @@ def save_sheet_to_gsheets(lokasi: str, df_raw_data: pd.DataFrame):
                 # Range untuk data harian
                 range_to_write_harian = f"{start_col_letter}{row_index}:{end_col_letter}{row_index}"
                 
-                # Tulis data menggunakan gspread
-                cell_list = worksheet.range(range_to_write_harian)
-                for i, cell in enumerate(cell_list):
-                    if i < len(data_to_write[param]):
-                        cell.value = data_to_write[param][i]
-                worksheet.update_cells(cell_list)
+                # PERUBAHAN: Tulis data dengan cara yang lebih sederhana
+                values = data_to_write[param]
+                # Update range sekaligus
+                cell_range = worksheet.range(range_to_write_harian)
+                for i, cell in enumerate(cell_range):
+                    if i < len(values):
+                        cell.value = values[i] if pd.notna(values[i]) else ""
+                worksheet.update_cells(cell_range)
 
             # 4. Menulis Data Rata-rata
             avg_col_letter = chr(ord('A') + GSHEET_AVG_COL_INDEX - 1) # AG
             
             for param, row_index in GSHEET_ROW_MAP.items():
                 avg_value = data_avg.get(param)
-                range_to_write_avg = f"{avg_col_letter}{row_index}"
-                
-                # Tulis nilai rata-rata
-                worksheet.update_acell(range_to_write_avg, avg_value)
+                if pd.notna(avg_value):
+                    range_to_write_avg = f"{avg_col_letter}{row_index}"
+                    # Tulis nilai rata-rata
+                    worksheet.update_acell(range_to_write_avg, avg_value)
             
             st.success(f"✅ Data berhasil disimpan dan diupdate di Google Sheet: **{lokasi}**!")
             time.sleep(1)
@@ -241,7 +280,7 @@ def save_sheet_to_gsheets(lokasi: str, df_raw_data: pd.DataFrame):
             st.error(f"❌ Gagal menyimpan data ke Google Sheets! Error: {e}")
 
 # ----------------------------
-# BAGIAN UTAMA APLIKASI STREAMLIT (SAMA PERSIS)
+# BAGIAN UTAMA APLIKASI STREAMLIT (TIDAK BERUBAH)
 # ----------------------------
 
 # 1. SIDEBAR: Pilihan Lokasi
