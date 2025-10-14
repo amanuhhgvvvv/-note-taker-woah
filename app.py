@@ -58,21 +58,21 @@ st.set_page_config(page_title="Monitoring Air", layout="centered")
 st.title("📊 Monitoring Air")
 
 # ----------------------------
-# FUNGSI UTAMA - SUDAH SESUAI STRUKTUR
+# FUNGSI UTAMA - DIPERBAIKI
 # ----------------------------
 def simpan_data_ke_sheet(lokasi, hari, pH, suhu, debit):
-    """Menyimpan data ke worksheet - SUDAH SESUAI STRUKTUR ANDA"""
+    """Menyimpan data ke worksheet - SUDAH DIPERBAIKI"""
     try:
         spreadsheet = client.open_by_key(SHEET_ID)
         worksheet = spreadsheet.worksheet(lokasi)
         
-        # ✅ MAPPING YANG BENAR BERDASARKAN STRUKTUR ANDA:
-        # Baris 3: pH, Baris 4: suhu, Baris 5: debit
+        # ✅ MAPPING YANG BENAR BERDASARKAN STRUKTUR SPREADSHEET:
+        # Baris 4: pH, Baris 5: suhu, Baris 6: debit
         # Kolom B=hari1, C=hari2, ..., AF=hari31
         mapping = {
-            "pH": 3,
-            "suhu": 4, 
-            "debit": 5
+            "pH": 4,      # Diperbaiki dari 3 → 4
+            "suhu": 5,    # Diperbaiki dari 4 → 5  
+            "debit": 6    # Diperbaiki dari 5 → 6
         }
         
         # Kolom untuk hari tertentu
@@ -93,13 +93,13 @@ def simpan_data_ke_sheet(lokasi, hari, pH, suhu, debit):
         return False
 
 def baca_data_dari_sheet(lokasi):
-    """Membaca data dari worksheet"""
+    """Membaca data dari worksheet - SUDAH DIPERBAIKI"""
     try:
         spreadsheet = client.open_by_key(SHEET_ID)
         worksheet = spreadsheet.worksheet(lokasi)
         
-        # Baca data hari 1-31 dari baris 3,4,5
-        data_range = "B3:AF5"  # Kolom B sampai AF, baris 3-5
+        # ✅ PERBAIKI RANGE: Baca dari baris 4-6 (bukan 3-5)
+        data_range = "B4:AF6"  # Kolom B sampai AF, baris 4-6
         data = worksheet.get(data_range)
         
         if not data:
@@ -115,26 +115,39 @@ def baca_data_dari_sheet(lokasi):
         df['Hari'] = list(range(1, 32))
         df['Tanggal'] = [f"{current_year}-{current_month:02d}-{day:02d}" for day in range(1, 32)]
         
-        # Ambil data pH, suhu, debit
+        # Ambil data pH, suhu, debit dengan pengecekan yang lebih aman
+        df['pH'] = [None] * 31
+        df['Suhu (°C)'] = [None] * 31
+        df['Debit (l/d)'] = [None] * 31
+        
         if len(data) >= 1:
-            df['pH'] = [float(x) if x != '' else None for x in data[0][:31]]
-        else:
-            df['pH'] = [None] * 31
+            for i, val in enumerate(data[0][:31]):
+                if val != '':
+                    try:
+                        df.at[i, 'pH'] = float(val)
+                    except (ValueError, TypeError):
+                        df.at[i, 'pH'] = None
             
         if len(data) >= 2:
-            df['Suhu (°C)'] = [float(x) if x != '' else None for x in data[1][:31]]
-        else:
-            df['Suhu (°C)'] = [None] * 31
+            for i, val in enumerate(data[1][:31]):
+                if val != '':
+                    try:
+                        df.at[i, 'Suhu (°C)'] = float(val)
+                    except (ValueError, TypeError):
+                        df.at[i, 'Suhu (°C)'] = None
             
         if len(data) >= 3:
-            df['Debit (l/d)'] = [float(x) if x != '' else None for x in data[2][:31]]
-        else:
-            df['Debit (l/d)'] = [None] * 31
+            for i, val in enumerate(data[2][:31]):
+                if val != '':
+                    try:
+                        df.at[i, 'Debit (l/d)'] = float(val)
+                    except (ValueError, TypeError):
+                        df.at[i, 'Debit (l/d)'] = None
         
         return df
         
     except Exception as e:
-        st.error(f"❌ Gagal membaca data: {e}")
+        st.error(f"❌ Gagal membaca data dari {lokasi}: {e}")
         return pd.DataFrame()
 
 # ==================== APLIKASI UTAMA ====================
@@ -183,7 +196,7 @@ with st.form("input_form"):
         input_ph = st.number_input(
             "Nilai pH", 
             min_value=0.0, max_value=14.0, 
-            value=existing_data['pH'] if existing_data is not None and pd.notna(existing_data['pH']) else 8.0,
+            value=existing_data['pH'] if existing_data is not None and pd.notna(existing_data['pH']) else 7.0,
             step=0.1,
             format="%.1f"
         )
@@ -191,7 +204,7 @@ with st.form("input_form"):
         input_suhu = st.number_input(
             "Suhu (°C)", 
             min_value=0.0, max_value=100.0, 
-            value=existing_data['Suhu (°C)'] if existing_data is not None and pd.notna(existing_data['Suhu (°C)']) else 27.0,
+            value=existing_data['Suhu (°C)'] if existing_data is not None and pd.notna(existing_data['Suhu (°C)']) else 29.0,
             step=0.1,
             format="%.1f"
         )
@@ -199,7 +212,7 @@ with st.form("input_form"):
         input_debit = st.number_input(
             "Debit (l/d)", 
             min_value=0.0,
-            value=existing_data['Debit (l/d)'] if existing_data is not None and pd.notna(existing_data['Debit (l/d)']) else 65.0,
+            value=existing_data['Debit (l/d)'] if existing_data is not None and pd.notna(existing_data['Debit (l/d)']) else 75.0,
             step=0.1,
             format="%.1f"
         )
@@ -228,6 +241,9 @@ if not current_df.empty:
         use_container_width=True,
         height=400
     )
+    
+    # Tampilkan statistik sederhana
+    st.metric("Total Data Tersimpan", f"{len(display_df[display_df['pH'] != ''])}/31 hari")
 else:
     st.info("Belum ada data untuk lokasi ini.")
 
