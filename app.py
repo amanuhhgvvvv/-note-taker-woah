@@ -77,8 +77,8 @@ GSHEET_ROW_MAP = {
 
 GSHEET_AVG_COL_INDEX = 33 
 
-st.set_page_config(page_title="Pencatatan pH & Debit Air", layout="centered")
-st.title("📊 Pencatatan pH dan Debit Air (Data Permanen via Google Sheets)")
+st.set_page_config(page_title="Monitoring Air", layout="centered")
+st.title("📊Monitoring Air")
 
 # ----------------------------
 # Utility: baca & simpan sheet 
@@ -426,3 +426,4 @@ st.dataframe(
 )
 
 st.caption("Catatan: Data di atas adalah hasil konversi dari format pivot Google Sheets Anda.")
+
