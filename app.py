@@ -86,7 +86,7 @@ st.title("📊 Monitoring Air")
 @st.cache_data(ttl=5)
 def read_all_sheets_gsheets():
     """
-    Membaca semua sheet dari Google Sheets - VERSI LEBIH TOLERAN
+    Membaca semua sheet dari Google Sheets - VERSI DENGAN HITUNG RATA-RATA OTOMATIS
     """
     all_dfs_raw = {}
     today = datetime.date.today()
@@ -147,15 +147,8 @@ def read_all_sheets_gsheets():
                         debit_param = df_pivot.index[[pattern.lower() in param for param in available_params].index(True)]
                         break
                 
-                # Ambil data rata-rata jika parameter ditemukan
-                avg_col_name = df_pivot.columns[-1] if len(df_pivot.columns) > 0 else None
-                
-                ph_avg = pd.to_numeric(df_pivot.loc[ph_param].get(avg_col_name), errors='coerce') if ph_param else None
-                suhu_avg = pd.to_numeric(df_pivot.loc[suhu_param].get(avg_col_name), errors='coerce') if suhu_param else None
-                debit_avg = pd.to_numeric(df_pivot.loc[debit_param].get(avg_col_name), errors='coerce') if debit_param else None
-                
-                # Hapus kolom rata-rata
-                df_pivot_harian = df_pivot.drop(columns=[avg_col_name]) if avg_col_name else df_pivot
+                # Hapus kolom rata-rata (kolom terakhir) untuk data harian
+                df_pivot_harian = df_pivot.iloc[:, :-1] if len(df_pivot.columns) > 1 else df_pivot
                 
                 # UN-PIVOT data
                 df_raw_data = df_pivot_harian.T
@@ -167,29 +160,54 @@ def read_all_sheets_gsheets():
                 valid_days = [day for day in range(1, min(32, days_in_month + 1))]
                 df_raw['tanggal'] = [f"{current_year}-{current_month:02d}-{day:02d}" for day in valid_days]
                 
-                # Ambil data jika parameter ada
-                if ph_param and ph_param in df_raw_data.columns:
-                    df_raw['pH'] = pd.to_numeric(df_raw_data.loc[valid_days, ph_param], errors='coerce').values
-                else:
-                    df_raw['pH'] = [None] * len(valid_days)
+                # Fungsi untuk ambil data dengan handle error
+                def safe_get_data(param, days):
+                    if param and param in df_raw_data.columns:
+                        values = []
+                        for day in days:
+                            try:
+                                raw_value = df_raw_data.loc[day, param]
+                                # Handle berbagai jenis error dan nilai kosong
+                                if raw_value in ['', '#DIV/0!', '#ERROR!', '#N/A', '#VALUE!', None]:
+                                    values.append(None)
+                                else:
+                                    values.append(float(raw_value))
+                            except:
+                                values.append(None)
+                        return values
+                    else:
+                        return [None] * len(days)
                 
-                if suhu_param and suhu_param in df_raw_data.columns:
-                    df_raw['suhu'] = pd.to_numeric(df_raw_data.loc[valid_days, suhu_param], errors='coerce').values
-                else:
-                    df_raw['suhu'] = [None] * len(valid_days)
+                # Ambil data harian
+                df_raw['pH'] = safe_get_data(ph_param, valid_days)
+                df_raw['suhu'] = safe_get_data(suhu_param, valid_days)
+                df_raw['debit'] = safe_get_data(debit_param, valid_days)
                 
-                if debit_param and debit_param in df_raw_data.columns:
-                    df_raw['debit'] = pd.to_numeric(df_raw_data.loc[valid_days, debit_param], errors='coerce').values
-                else:
-                    df_raw['debit'] = [None] * len(valid_days)
+                # ========== PERBAIKAN PENTING: HITUNG RATA-RATA DARI DATA HARIAN ==========
+                # Hitung rata-rata hanya dari data yang tidak None/NaN
+                ph_data_valid = [x for x in df_raw['pH'] if x is not None and not pd.isna(x)]
+                suhu_data_valid = [x for x in df_raw['suhu'] if x is not None and not pd.isna(x)]
+                debit_data_valid = [x for x in df_raw['debit'] if x is not None and not pd.isna(x)]
                 
-                # Tambahkan baris rata-rata
+                ph_rata_rata = sum(ph_data_valid) / len(ph_data_valid) if ph_data_valid else None
+                suhu_rata_rata = sum(suhu_data_valid) / len(suhu_data_valid) if suhu_data_valid else None
+                debit_rata_rata = sum(debit_data_valid) / len(debit_data_valid) if debit_data_valid else None
+                
+                # Format rata-rata
+                if ph_rata_rata is not None:
+                    ph_rata_rata = round(ph_rata_rata, 2)
+                if suhu_rata_rata is not None:
+                    suhu_rata_rata = round(suhu_rata_rata, 1)
+                if debit_rata_rata is not None:
+                    debit_rata_rata = round(debit_rata_rata, 2)
+                
+                # Tambahkan baris rata-rata dengan nilai yang dihitung
                 avg_row = {
                     "tanggal": f"Rata-rata {current_month:02d}/{current_year}",
                     "pH": None, "suhu": None, "debit": None,
-                    "ph_rata_rata_bulan": ph_avg,
-                    "suhu_rata_rata_bulan": suhu_avg,
-                    "debit_rata_rata_bulan": debit_avg
+                    "ph_rata_rata_bulan": ph_rata_rata,
+                    "suhu_rata_rata_bulan": suhu_rata_rata,
+                    "debit_rata_rata_bulan": debit_rata_rata
                 }
                 df_raw = pd.concat([df_raw, pd.DataFrame([avg_row])], ignore_index=True)
                 
@@ -212,34 +230,38 @@ def save_sheet_to_gsheets(lokasi: str, df_raw_data: pd.DataFrame):
     read_all_sheets_gsheets.clear()
     
     try:
-        # 1. Filter Data Harian - PERBAIKAN: gunakan copy() untuk menghindari warning
+        # 1. Filter Data Harian
         df_data_only = df_raw_data[~df_raw_data["tanggal"].astype(str).str.startswith('Rata-rata', na=False)].copy()
         
-        # 2. Persiapan Nilai - PERBAIKAN: tambahkan pengecekan untuk baris rata-rata
-        rata_rata_rows = df_raw_data[df_raw_data["tanggal"].astype(str).str.startswith('Rata-rata', na=False)]
+        # 2. HITUNG RATA-RATA OTOMATIS dari data harian
+        ph_data_valid = [x for x in df_data_only['pH'] if x is not None and not pd.isna(x)]
+        suhu_data_valid = [x for x in df_data_only['suhu'] if x is not None and not pd.isna(x)]
+        debit_data_valid = [x for x in df_data_only['debit'] if x is not None and not pd.isna(x)]
         
-        # PERBAIKAN PENTING: Cek apakah ada baris rata-rata sebelum mengakses
-        if rata_rata_rows.empty:
-            st.warning("⚠️ Tidak ditemukan baris rata-rata dalam data. Menggunakan nilai default.")
-            data_avg = {
-                'pH': None,
-                'suhu': None,
-                'debit': None,
-            }
-        else:
-            rata_rata_row = rata_rata_rows.iloc[0]
-            # Data Rata-rata Bulanan
-            data_avg = {
-                'pH': rata_rata_row.get('ph_rata_rata_bulan'),
-                'suhu': rata_rata_row.get('suhu_rata_rata_bulan'),
-                'debit': rata_rata_row.get('debit_rata_rata_bulan'),
-            }
+        ph_rata_rata = sum(ph_data_valid) / len(ph_data_valid) if ph_data_valid else None
+        suhu_rata_rata = sum(suhu_data_valid) / len(suhu_data_valid) if suhu_data_valid else None
+        debit_rata_rata = sum(debit_data_valid) / len(debit_data_valid) if debit_data_valid else None
         
-        # Data harian dalam format list - PERBAIKAN: handle nilai NaN
+        # Format rata-rata
+        if ph_rata_rata is not None:
+            ph_rata_rata = round(ph_rata_rata, 2)
+        if suhu_rata_rata is not None:
+            suhu_rata_rata = round(suhu_rata_rata, 1)
+        if debit_rata_rata is not None:
+            debit_rata_rata = round(debit_rata_rata, 2)
+        
+        # Data harian dalam format list
         data_to_write = {
             'pH': df_data_only['pH'].fillna('').tolist(),
             'suhu': df_data_only['suhu'].fillna('').tolist(),
             'debit': df_data_only['debit'].fillna('').tolist(),
+        }
+        
+        # Data Rata-rata
+        data_avg = {
+            'pH': ph_rata_rata,
+            'suhu': suhu_rata_rata,
+            'debit': debit_rata_rata,
         }
         
         # 3. Menulis Data ke Google Sheets dengan GSPREAD
@@ -272,7 +294,7 @@ def save_sheet_to_gsheets(lokasi: str, df_raw_data: pd.DataFrame):
                             cell.value = values[i] if pd.notna(values[i]) and values[i] != '' else ""
                     worksheet.update_cells(cell_range)
 
-                # 4. Menulis Data Rata-rata - PERBAIKAN: hanya tulis jika nilai tidak None
+                # 4. Menulis Data Rata-rata
                 avg_col_letter = chr(ord('A') + GSHEET_AVG_COL_INDEX - 1) # AG
                 
                 for param, row_index in GSHEET_ROW_MAP.items():
@@ -321,7 +343,13 @@ today_date = datetime.date.today()
 today_day = today_date.day
 
 # Cek apakah data untuk hari ini sudah ada
-is_day_recorded = today_day in pd.to_datetime(current_df['tanggal'], errors='coerce').dt.day.values
+is_day_recorded = False
+if not current_df.empty:
+    try:
+        dates = pd.to_datetime(current_df['tanggal'], errors='coerce')
+        is_day_recorded = today_day in dates.dt.day.values
+    except:
+        is_day_recorded = False
 
 if is_day_recorded:
     st.info(f"Data untuk tanggal **{today_day}** sudah ada.")
@@ -331,7 +359,7 @@ with st.form("input_form"):
     
     # Pilih Hari
     day_options = [day for day in range(1, 32)]
-    default_day_index = day_options.index(today_day)
+    default_day_index = day_options.index(today_day) if today_day in day_options else 0
     
     input_day = st.selectbox(
         "Pilih **Hari** untuk Pencatatan:",
