@@ -14,8 +14,9 @@ from google.oauth2.service_account import Credentials
 def init_gsheets_connection():
     """Menginisialisasi koneksi gspread menggunakan st.secrets."""
     try:
-        # PENTING: Untuk penanganan newlines (\n) di private_key Streamlit
-        private_key = st.secrets["private_key"].replace('\\n', '\n').strip()
+        # REVISI PENTING: Menghapus .replace('\\n', '\n').strip() 
+        # karena private_key di secrets.toml sekarang menggunakan tanda kutip tiga (""").
+        private_key = st.secrets["private_key"] 
         
         creds_dict = {
             "type": "service_account",
@@ -74,8 +75,9 @@ st.title("📊 Monitoring Air")
 
 def get_worksheet_name(lokasi):
     """Mengecek nama worksheet. Menambahkan penanganan spasi jika ada."""
-    if lokasi == "WTP" and "WTP " in client.open_by_key(SHEET_ID).worksheets():
-        return "WTP "  # Jika sheet asli memiliki spasi
+    # Mengatasi potensi perbedaan spasi pada nama sheet
+    if lokasi == "WTP" and "WTP " in [ws.title for ws in client.open_by_key(SHEET_ID).worksheets()]:
+        return "WTP "  # Jika sheet asli memiliki spasi di akhir
     return lokasi
 
 @st.cache_data(ttl=60) # Cache data selama 60 detik untuk performa
@@ -90,7 +92,7 @@ def simpan_data_ke_sheet(lokasi, hari, pH, suhu, debit):
         
         # MAPPING BARIS SESUAI STRUKTUR SPREADSHEET (Baris 3=pH, Baris 4=suhu, Baris 5=debit)
         mapping = {
-            "pH": 3,      # Baris 3
+            "pH": 3,     # Baris 3
             "suhu": 4,    # Baris 4
             "debit": 5    # Baris 5
         }
@@ -253,7 +255,7 @@ with st.form("input_form"):
     if submitted:
         # Periksa semua kolom apakah kosong (0.0 bisa jadi nilai valid)
         if input_ph is None or input_suhu is None or input_debit is None:
-             st.warning("⚠️ Harap isi semua kolom data.")
+              st.warning("⚠️ Harap isi semua kolom data.")
         else:
             with st.spinner("Menyimpan data..."):
                 success = simpan_data_ke_sheet(selected_lokasi, input_day, input_ph, input_suhu, input_debit)
