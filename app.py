@@ -4,7 +4,7 @@ import numpy as np
 import datetime
 import time
 import gspread
-import altair as alt
+import altair as alt # Tetap diimpor karena init_gsheets_connection di-cache
 from google.oauth2.service_account import Credentials
 
 # ----------------------------
@@ -14,8 +14,7 @@ from google.oauth2.service_account import Credentials
 def init_gsheets_connection():
     """Menginisialisasi koneksi gspread menggunakan st.secrets."""
     try:
-        # REVISI PENTING: Menghapus .replace('\\n', '\n').strip() 
-        # karena private_key di secrets.toml sekarang menggunakan tanda kutip tiga (""").
+        # Menggunakan private_key dari secrets.toml
         private_key = st.secrets["private_key"] 
         
         creds_dict = {
@@ -70,19 +69,24 @@ st.title("📊 Monitoring Air")
 
 
 # ----------------------------
-# FUNGSI UTAMA - DIBERSIHKAN & DIPERBAIKI
+# FUNGSI UTAMA 
 # ----------------------------
 
 def get_worksheet_name(lokasi):
     """Mengecek nama worksheet. Menambahkan penanganan spasi jika ada."""
     # Mengatasi potensi perbedaan spasi pada nama sheet
-    if lokasi == "WTP" and "WTP " in [ws.title for ws in client.open_by_key(SHEET_ID).worksheets()]:
-        return "WTP "  # Jika sheet asli memiliki spasi di akhir
-    return lokasi
+    try:
+        ws_titles = [ws.title for ws in client.open_by_key(SHEET_ID).worksheets()]
+        if lokasi == "WTP" and "WTP " in ws_titles:
+            return "WTP "  # Jika sheet asli memiliki spasi di akhir
+        return lokasi
+    except Exception:
+        # Fallback jika gagal membuka spreadsheet
+        return lokasi 
 
 @st.cache_data(ttl=60) # Cache data selama 60 detik untuk performa
 def simpan_data_ke_sheet(lokasi, hari, pH, suhu, debit):
-    """Menyimpan data ke worksheet - MAPPING BARIS DIPERBAIKI (Baris 3, 4, 5)"""
+    """Menyimpan data ke worksheet (Baris 3, 4, 5)"""
     try:
         spreadsheet = client.open_by_key(SHEET_ID)
         
@@ -112,9 +116,30 @@ def simpan_data_ke_sheet(lokasi, hari, pH, suhu, debit):
         st.error(f"❌ Gagal menyimpan data ke Google Sheets. Pastikan 'SHEET_ID' benar dan nama sheet '{lokasi}' ada. Error: {str(e)}")
         return False
 
+# FUNGSI BARU: Hapus SELURUH Data Bulanan di Google Sheet (Range B3:AF5)
+def hapus_data_satu_bulan(lokasi):
+    """Menghapus seluruh data bulanan (B3:AF5) di Google Sheet dengan string kosong."""
+    try:
+        spreadsheet = client.open_by_key(SHEET_ID)
+        ws_name = get_worksheet_name(lokasi) 
+        worksheet = spreadsheet.worksheet(ws_name)
+        
+        # Kirim list of lists of empty strings (3 baris x 31 kolom)
+        empty_data = [[''] * 31 for _ in range(3)] 
+        
+        # Update range B3:AF5
+        worksheet.update('B3:AF5', empty_data)
+        
+        return True
+    except Exception as e:
+        # Jika penghapusan gagal
+        st.error(f"❌ Gagal menghapus data dari Google Sheets. Error: {str(e)}")
+        return False
+
+
 @st.cache_data(ttl=60) # Cache data selama 60 detik
 def baca_data_dari_sheet(lokasi):
-    """Membaca data dari worksheet - MAPPING RANGE DIPERBAIKI (B3:AF5)"""
+    """Membaca data dari worksheet (Range B3:AF5)"""
     try:
         spreadsheet = client.open_by_key(SHEET_ID)
         
@@ -122,7 +147,7 @@ def baca_data_dari_sheet(lokasi):
         ws_name = get_worksheet_name(lokasi)
         worksheet = spreadsheet.worksheet(ws_name)
         
-        # RANGE DIPERBAIKI: Baca dari baris 3-5 (Kolom B sampai AF)
+        # RANGE: Baca dari baris 3-5 (Kolom B sampai AF)
         data_range = "B3:AF5"  
         data = worksheet.get(data_range)
         
@@ -150,7 +175,8 @@ def baca_data_dari_sheet(lokasi):
                 return float(val)
             if isinstance(val, str) and val.strip() != '':
                 try:
-                    return float(val.replace(',', '.')) # Handle koma sebagai desimal
+                    # Mengganti koma dengan titik jika ada, untuk konversi float
+                    return float(val.replace(',', '.')) 
                 except ValueError:
                     return np.nan
             return np.nan
@@ -189,8 +215,16 @@ selected_lokasi = st.sidebar.selectbox(
     index=0 
 )
 
+# Inisialisasi session state untuk konfirmasi hapus data
+if 'confirm_clear_data_monthly' not in st.session_state:
+    st.session_state['confirm_clear_data_monthly'] = False
+
 # Muat data existing (dengan cache)
 current_df = baca_data_dari_sheet(selected_lokasi)
+
+# Dapatkan hari ini untuk penamaan file download
+today_date = datetime.date.today()
+today_day = today_date.day
 
 # Tampilkan Status Lokasi
 st.subheader(f"📍 Lokasi: {selected_lokasi}")
@@ -199,9 +233,6 @@ st.subheader(f"📍 Lokasi: {selected_lokasi}")
 st.markdown("---")
 st.header("📝 Catat Data Baru")
 
-# Dapatkan hari ini untuk input default
-today_date = datetime.date.today()
-today_day = today_date.day
 
 with st.form("input_form"):
     
@@ -251,6 +282,8 @@ with st.form("input_form"):
         )
         
     submitted = st.form_submit_button("💾 Simpan Data ke Google Sheets", type="primary")
+    
+    # Tombol Hapus Manual Harian dihilangkan
 
     if submitted:
         # Periksa semua kolom apakah kosong (0.0 bisa jadi nilai valid)
@@ -258,9 +291,10 @@ with st.form("input_form"):
               st.warning("⚠ Harap isi semua kolom data.")
         else:
             with st.spinner("Menyimpan data..."):
-                success = simpan_data_ke_sheet(selected_lokasi, input_day, input_ph, input_suhu, input_debit)
-                if success:
-                    # Clear cache dan rerun jika berhasil
+                success_save = simpan_data_ke_sheet(selected_lokasi, input_day, input_ph, input_suhu, input_debit)
+                
+                # Hanya me-rerun jika berhasil disimpan
+                if success_save:
                     st.cache_data.clear()
                     time.sleep(1.5)
                     st.rerun()
@@ -286,4 +320,56 @@ if not current_df.empty:
     valid_ph_entries = current_df['pH'].count()
     st.metric("Total Hari Tercatat (Bulan Ini)", f"{valid_ph_entries}/31 hari")
     
+else:
+    st.info("Belum ada data untuk lokasi ini.")
+
+# --- Bagian 3: Arsipkan Data Bulan Ini ---
+st.markdown("---")
+st.header("📦 Arsipkan Data Bulan Ini")
+st.info("Setelah data bulanan Anda **diarsipkan secara manual** (diunduh langsung dari Google Sheet), gunakan tombol di bawah untuk mengosongkan data dari Spreadsheet, siap untuk bulan berikutnya.")
+
+if not current_df.empty:
     
+    # Logika tombol hapus dengan konfirmasi 2 langkah
+    
+    # Cek apakah konfirmasi sedang aktif
+    is_confirming = st.session_state.get('confirm_clear_data_monthly', False)
+
+    if st.button(
+        f"🗑️ HAPUS SELURUH DATA {selected_lokasi} (Bulan Ini)",
+        # Ganti warna tombol saat mode konfirmasi
+        type="secondary" if not is_confirming else "primary",
+        use_container_width=True # Membuat tombol penuh lebar
+    ):
+        if is_confirming:
+            # LANGKAH 2: Konfirmasi penghapusan
+            with st.spinner("Menghapus seluruh data bulan ini..."):
+                clear_success = hapus_data_satu_bulan(selected_lokasi)
+                
+                if clear_success:
+                    st.session_state['confirm_clear_data_monthly'] = False # Reset confirmation
+                    st.success(f"✅ Seluruh data {selected_lokasi} untuk bulan ini berhasil dikosongkan dari Google Sheets.")
+                    st.cache_data.clear()
+                    time.sleep(1.5)
+                    st.rerun()
+                # Jika gagal, fungsi hapus sudah menampilkan error
+                    
+        else:
+            # LANGKAH 1: Meminta konfirmasi
+            st.session_state['confirm_clear_data_monthly'] = True
+            st.warning("❗ Anda yakin ingin menghapus **SEMUA** data bulan ini? Pastikan Anda **sudah mengarsipkannya secara manual** (mengunduh dari Google Sheet). Klik tombol **sekali lagi** untuk konfirmasi penghapusan.")
+            
+        # Rerun untuk menampilkan/menghapus pesan konfirmasi
+        st.rerun()
+    
+    # Reset konfirmasi jika pengguna mengganti lokasi saat konfirmasi aktif
+    if selected_lokasi != st.session_state.get('last_selected_lokasi'):
+        st.session_state['confirm_clear_data_monthly'] = False
+    st.session_state['last_selected_lokasi'] = selected_lokasi
+
+else:
+    # Kasus jika current_df kosong (belum ada data)
+    st.info("Tidak ada data untuk dihapus.")
+
+
+st.caption("Aplikasi Monitoring Air | Pastikan akun layanan memiliki akses Edit.")
