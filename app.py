@@ -209,6 +209,42 @@ def baca_data_dari_sheet(lokasi):
     except Exception as e:
         st.error(f"❌ Gagal membaca data dari {lokasi}. Periksa Izin Berbagi Sheet. Error: {e}")
         return pd.DataFrame()
+
+# FUNGSI BARU UNTUK MENGUNDUH DATA MENTAH DENGAN STRUKTUR SPREADSHEET
+def baca_data_raw_sheet_untuk_unduh(lokasi):
+    """
+    Membaca data MENTAH dari Google Sheet (Range A2:AF5) 
+    untuk mempertahankan struktur Baris (Parameter) dan Kolom (Hari).
+    """
+    try:
+        spreadsheet = client.open_by_key(SHEET_ID)
+        ws_name = get_worksheet_name(lokasi)
+        worksheet = spreadsheet.worksheet(ws_name)
+        
+        # Range A2:AF5 mencakup label hari (Baris 2) dan label parameter (Kolom A)
+        data = worksheet.get("A2:AF5") 
+        
+        if not data or len(data) < 2:
+            return pd.DataFrame() 
+
+        # Baris pertama (data[0]) adalah header kolom: ['Kosong/Label', '1', '2', ..., '31']
+        cols = [val if val else 'Parameter' for val in data[0]] 
+        
+        # Sisa baris adalah data: [['pH', 7.0, 7.1, ...], ['Suhu', 25, 26, ...], ...]
+        raw_rows = data[1:] 
+        
+        # Buat DataFrame
+        df_raw = pd.DataFrame(raw_rows, columns=cols)
+        
+        # Atur kolom pertama (Kolom A: Parameter) sebagai index baris
+        df_raw = df_raw.set_index(df_raw.columns[0])
+        df_raw.index.name = None # Hapus nama index (agar terlihat seperti di Sheet)
+        
+        return df_raw
+        
+    except Exception as e:
+        # st.error(f"❌ Gagal membaca data mentah untuk unduhan. Error: {e}") # Tidak perlu ditampilkan
+        return pd.DataFrame()
     
 # FUNGSI to_excel DIHAPUS, DIGANTIKAN DENGAN to_csv
 
@@ -330,6 +366,50 @@ if not current_df.empty:
 else:
     st.info("Belum ada data untuk lokasi ini.")
 
+# --- Bagian 3: Visualisasi Data (Altair) ---
+st.markdown("---")
+st.header("📈 Tren Data Bulanan")
+
+if not current_df.empty and current_df['pH'].notna().any():
+    # Mengubah format data dari wide ke long untuk Altair
+    df_melted = current_df.melt(
+        id_vars=['Hari', 'Tanggal'],
+        value_vars=['pH', 'Suhu (°C)', 'Debit (l/d)'],
+        var_name='Parameter',
+        value_name='Nilai'
+    ).dropna(subset=['Nilai'])
+    
+    # Konversi Hari menjadi string kategori untuk sumbu X agar tidak ada gap di grafik
+    df_melted['Hari_str'] = df_melted['Hari'].astype(str)
+    
+    # Buat Chart interaktif
+    chart = alt.Chart(df_melted).mark_line(point=True).encode(
+        # Sumbu X: Hari (sebagai string)
+        x=alt.X('Hari_str', title='Hari ke-', sort=list(map(str, range(1, 32)))),
+        # Sumbu Y: Nilai
+        y=alt.Y('Nilai', title='Nilai Parameter'),
+        # Warna: Berdasarkan Parameter
+        color=alt.Color('Parameter', title='Parameter'),
+        # Tooltip
+        tooltip=['Tanggal', 'Parameter', 'Nilai']
+    ).properties(
+        #title=f"Tren pH, Suhu, dan Debit untuk {selected_lokasi}" # Judul dipindah ke atas
+    ).interactive() # Zoom dan pan
+    
+    # Pisahkan chart per parameter (Faceted Chart)
+    chart_faceted = chart.facet(
+        column=alt.Column('Parameter', header=alt.Header(titleOrient="bottom", labelOrient="bottom")),
+        columns=3 # Tampilkan 3 kolom
+    ).resolve_scale(
+        y='independent' # Skala Y yang independen untuk setiap parameter
+    )
+    
+    st.altair_chart(chart_faceted, use_container_width=True)
+
+else:
+    st.info("Tidak cukup data (pH, Suhu, atau Debit) untuk menampilkan tren bulan ini.")
+
+
 # --- Bagian 4: Arsipkan & Hapus Data Bulan Ini ---
 st.markdown("---")
 st.header("📦 Arsipkan & Kosongkan Data Bulanan")
@@ -342,12 +422,16 @@ if not current_df.empty:
     
     # Tombol Download (di Bagian 4 agar dekat dengan Clear)
     with col_download:
-        # FUNGSI DOWNLOAD (CSV) SUDAH DITAMBAHKAN DI SINI
-        csv_data = current_df[['Tanggal', 'pH', 'Suhu (°C)', 'Debit (l/d)']].to_csv(index=False).encode('utf-8')
+        # Ambil data mentah dengan struktur yang sama seperti di Google Sheets (Baris=Parameter, Kolom=Hari)
+        raw_df_for_download = baca_data_raw_sheet_untuk_unduh(selected_lokasi)
+        
+        # Konversi DataFrame mentah ke CSV. Index=True agar label parameter (pH, Suhu, Debit) ikut terunduh.
+        csv_data = raw_df_for_download.to_csv(index=True).encode('utf-8')
+
         st.download_button(
             label="⬇️ Unduh Data (CSV)", # Label tombol download
             data=csv_data,
-            file_name=f"{selected_lokasi}_MonitoringAir_{today_date.strftime('%Y%m')}.csv", # Nama file
+            file_name=f"{selected_lokasi}_MonitoringAir_RawData_{today_date.strftime('%Y%m')}.csv", # Nama file
             mime="text/csv", # MIME type untuk CSV
             type="primary",
             use_container_width=True
@@ -398,4 +482,3 @@ else:
 
 
 st.caption("Aplikasi Monitoring Air | Pastikan akun layanan memiliki akses Edit.")
-
