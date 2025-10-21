@@ -4,10 +4,8 @@ import numpy as np
 import datetime
 import time
 import gspread
-import altair as alt 
+import altair as alt # Tetap diimpor karena init_gsheets_connection di-cache
 from google.oauth2.service_account import Credentials
-from io import BytesIO
-import xlsxwriter
 
 # ----------------------------
 # KONEKSI GOOGLE SHEETS
@@ -76,51 +74,15 @@ st.title("📊 Monitoring Air")
 
 def get_worksheet_name(lokasi):
     """Mengecek nama worksheet. Menambahkan penanganan spasi jika ada."""
+    # Mengatasi potensi perbedaan spasi pada nama sheet
     try:
         ws_titles = [ws.title for ws in client.open_by_key(SHEET_ID).worksheets()]
-        # Handling for 'WTP ' with trailing space if it exists
         if lokasi == "WTP" and "WTP " in ws_titles:
-            return "WTP "
+            return "WTP "  # Jika sheet asli memiliki spasi di akhir
         return lokasi
     except Exception:
         # Fallback jika gagal membuka spreadsheet
         return lokasi 
-
-# Helper function untuk membaca data mentah (digunakan untuk tampilan dan unduhan)
-def _fetch_raw_sheet_data_internal(lokasi):
-    """
-    Membaca HANYA data (Range B3:AF5) dari worksheet dan mengembalikan list of lists.
-    Ini digunakan untuk update data harian, bukan untuk unduhan desain lengkap.
-    """
-    try:
-        spreadsheet = client.open_by_key(SHEET_ID)
-        ws_name = get_worksheet_name(lokasi)
-        worksheet = spreadsheet.worksheet(ws_name)
-        data_range = "B3:AF5"  
-        data = worksheet.get(data_range)
-        return data if data else []
-    except Exception:
-        # Menangani kesalahan dengan mengembalikan list kosong
-        return []
-
-# NEW: Helper function untuk membaca SEMUA data (Termasuk Header/A1:AF10)
-@st.cache_data(ttl=60)
-def _fetch_full_sheet_data_for_download(lokasi):
-    """
-    Membaca SEMUA data yang relevan (A1:AF10) dari worksheet untuk keperluan unduhan, 
-    termasuk header dan kolom parameter.
-    """
-    try:
-        spreadsheet = client.open_by_key(SHEET_ID)
-        ws_name = get_worksheet_name(lokasi)
-        worksheet = spreadsheet.worksheet(ws_name)
-        # Range aman untuk menangkap header (A1:AF2) dan data (A3:AF5), dan potensi footer
-        data_range = "A1:AF10" 
-        data = worksheet.get(data_range, value_render_option='FORMATTED_VALUE')
-        return data if data else []
-    except Exception:
-        return []
-
 
 @st.cache_data(ttl=60) # Cache data selama 60 detik untuk performa
 def simpan_data_ke_sheet(lokasi, hari, pH, suhu, debit):
@@ -134,7 +96,7 @@ def simpan_data_ke_sheet(lokasi, hari, pH, suhu, debit):
         
         # MAPPING BARIS SESUAI STRUKTUR SPREADSHEET (Baris 3=pH, Baris 4=suhu, Baris 5=debit)
         mapping = {
-            "pH": 3,      # Baris 3
+            "pH": 3,     # Baris 3
             "suhu": 4,    # Baris 4
             "debit": 5    # Baris 5
         }
@@ -154,7 +116,7 @@ def simpan_data_ke_sheet(lokasi, hari, pH, suhu, debit):
         st.error(f"❌ Gagal menyimpan data ke Google Sheets. Pastikan 'SHEET_ID' benar dan nama sheet '{lokasi}' ada. Error: {str(e)}")
         return False
 
-# FUNGSI Hapus SELURUH Data Bulanan di Google Sheet (Range B3:AF5)
+# FUNGSI BARU: Hapus SELURUH Data Bulanan di Google Sheet (Range B3:AF5)
 def hapus_data_satu_bulan(lokasi):
     """Menghapus seluruh data bulanan (B3:AF5) di Google Sheet dengan string kosong."""
     try:
@@ -177,10 +139,17 @@ def hapus_data_satu_bulan(lokasi):
 
 @st.cache_data(ttl=60) # Cache data selama 60 detik
 def baca_data_dari_sheet(lokasi):
-    """Membaca data dari worksheet dan mengembalikannya dalam format harian (untuk tampilan)."""
+    """Membaca data dari worksheet (Range B3:AF5)"""
     try:
-        # Gunakan helper untuk mendapatkan data mentah (hanya B3:AF5)
-        data = _fetch_raw_sheet_data_internal(lokasi)
+        spreadsheet = client.open_by_key(SHEET_ID)
+        
+        # Menggunakan nama worksheet yang sesuai
+        ws_name = get_worksheet_name(lokasi)
+        worksheet = spreadsheet.worksheet(ws_name)
+        
+        # RANGE: Baca dari baris 3-5 (Kolom B sampai AF)
+        data_range = "B3:AF5"  
+        data = worksheet.get(data_range)
         
         if not data:
             return pd.DataFrame()
@@ -236,48 +205,6 @@ def baca_data_dari_sheet(lokasi):
         st.error(f"❌ Gagal membaca data dari {lokasi}. Periksa Izin Berbagi Sheet. Error: {e}")
         return pd.DataFrame()
 
-# ========================================================
-# FUNGSI BARU: UNDUH MULTI-SHEET DENGAN DESAIN ASLI
-# ========================================================
-@st.cache_data(ttl=60)
-def create_multi_sheet_excel():
-    """
-    Mengambil data penuh (A1:AF10) dari setiap sheet lokasi dan 
-    menuliskannya ke sheet terpisah dalam satu file Excel.
-    """
-    output = BytesIO()
-    
-    # Gunakan ExcelWriter dari Pandas (dengan openpyxl)
-    with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        
-        for lokasi in SHEET_NAMES:
-            # Ambil data mentah lengkap dari Google Sheet (misal: A1:AF10)
-            sheet_data = _fetch_full_sheet_data_for_download(lokasi)
-            
-            if sheet_data:
-                # Konversi list of lists menjadi DataFrame
-                # Kita tidak menggunakan header dari DataFrame, karena header Excel adalah data itu sendiri
-                df = pd.DataFrame(sheet_data)
-                
-                # Tulis DataFrame ke sheet Excel. 
-                # header=False dan index=False memastikan data ditulis mentah mulai dari baris 0, kolom 0 (A1)
-                try:
-                    # Sheet name di Excel dibatasi 31 karakter
-                    safe_sheet_name = lokasi[:31]
-                    df.to_excel(writer, 
-                                sheet_name=safe_sheet_name, 
-                                index=False, 
-                                header=False, 
-                                startrow=0, 
-                                startcol=0)
-                except Exception as e:
-                    # Menangani jika nama sheet invalid
-                    st.warning(f"Gagal menulis sheet untuk {lokasi}: {e}")
-                    continue
-
-    processed_data = output.getvalue()
-    return processed_data
-
 # ==================== APLIKASI UTAMA ====================
 
 # Pilihan Lokasi
@@ -289,7 +216,7 @@ selected_lokasi = st.sidebar.selectbox(
 )
 
 # Inisialisasi session state untuk konfirmasi hapus data
-if 'confirm_clear_data_monthly' in st.session_state:
+if 'confirm_clear_data_monthly' not in st.session_state:
     st.session_state['confirm_clear_data_monthly'] = False
 
 # Muat data existing (dengan cache)
@@ -392,41 +319,16 @@ if not current_df.empty:
     # Tampilkan statistik sederhana
     valid_ph_entries = current_df['pH'].count()
     st.metric("Total Hari Tercatat (Bulan Ini)", f"{valid_ph_entries}/31 hari")
-
-    # ========================================================
-    # DOWNLOAD BUTTON (UPDATED)
-    # ========================================================
     
-    st.markdown("---")
-    st.subheader("📥 Unduh Data Bulanan Semua Lokasi (Replikasi Desain Google Sheets)")
-    st.info("File Excel ini berisi banyak *sheet*. Setiap *sheet* di Excel akan memiliki **desain yang persis** sama dengan *sheet* aslinya di Google Sheets.")
-    
-    # Siapkan data Excel multi-sheet
-    excel_data_multi_sheet = create_multi_sheet_excel()
-    
-    # Tentukan nama file
-    month_year_str = today_date.strftime('%Y%m')
-    excel_filename = f"Data_Air_BULANAN_REPLIKA_SHEETS_{month_year_str}.xlsx"
-
-    st.download_button(
-        label="⬇️ Unduh Data Semua Lokasi (Excel XLSX)",
-        data=excel_data_multi_sheet,
-        file_name=excel_filename,
-        mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        key='download_all_excel_button',
-        type="primary",
-        use_container_width=True
-    )
-
 else:
     st.info("Belum ada data untuk lokasi ini.")
 
-# --- Bagian 3: Kosongkan Data Bulanan ---
+# --- Bagian 3: Arsipkan Data Bulan Ini ---
 st.markdown("---")
-st.header("📦 Kosongkan Data Bulanan")
-st.info("Setelah data bulanan Anda *diarsipkan*, gunakan tombol di bawah untuk mengosongkan data dari Spreadsheet, siap untuk bulan berikutnya.")
+st.header("📦 Arsipkan Data Bulan Ini")
+st.info("Setelah data bulanan Anda *diarsipkan secara manual* (diunduh langsung dari Google Sheet), gunakan tombol di bawah untuk mengosongkan data dari Spreadsheet, siap untuk bulan berikutnya.")
 
-if not current_df.empty and current_df['pH'].count() > 0: # Cek apakah ada data valid untuk dihapus
+if not current_df.empty:
     
     # Logika tombol hapus dengan konfirmasi 2 langkah
     
@@ -451,11 +353,11 @@ if not current_df.empty and current_df['pH'].count() > 0: # Cek apakah ada data 
                     time.sleep(1.5)
                     st.rerun()
                 # Jika gagal, fungsi hapus sudah menampilkan error
-                     
+                    
         else:
             # LANGKAH 1: Meminta konfirmasi
             st.session_state['confirm_clear_data_monthly'] = True
-            st.warning("❗ Anda yakin ingin menghapus *SEMUA* data bulan ini? Pastikan Anda *sudah mengarsipkannya*. Klik tombol *sekali lagi* untuk konfirmasi penghapusan.")
+            st.warning("❗ Anda yakin ingin menghapus *SEMUA* data bulan ini? Pastikan Anda *sudah mengarsipkannya secara manual* (mengunduh dari Google Sheet). Klik tombol *sekali lagi* untuk konfirmasi penghapusan.")
             
         # Rerun untuk menampilkan/menghapus pesan konfirmasi
         st.rerun()
@@ -466,7 +368,7 @@ if not current_df.empty and current_df['pH'].count() > 0: # Cek apakah ada data 
     st.session_state['last_selected_lokasi'] = selected_lokasi
 
 else:
-    # Kasus jika current_df kosong (belum ada data) atau semua nilai kosong
+    # Kasus jika current_df kosong (belum ada data)
     st.info("Tidak ada data untuk dihapus.")
 
 
