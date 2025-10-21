@@ -4,18 +4,21 @@ import numpy as np
 import datetime
 import time
 import gspread
-import altair as alt # Tetap diimpor karena init_gsheets_connection di-cache
+import altair as alt 
 from google.oauth2.service_account import Credentials
+# import io # Tidak diperlukan lagi untuk CSV
 
 # ----------------------------
 # KONEKSI GOOGLE SHEETS
+# (Tidak ada perubahan pada koneksi)
 # ----------------------------
 @st.cache_resource
 def init_gsheets_connection():
     """Menginisialisasi koneksi gspread menggunakan st.secrets."""
     try:
         # Menggunakan private_key dari secrets.toml
-        private_key = st.secrets["private_key"] 
+        # Mengganti \n literal menjadi karakter newline yang sebenarnya
+        private_key = st.secrets["private_key"].replace('\\n', '\n') 
         
         creds_dict = {
             "type": "service_account",
@@ -47,7 +50,8 @@ client = init_gsheets_connection()
 
 # Hentikan eksekusi jika koneksi gagal
 if client is None:
-    st.stop()
+    # Memastikan tidak ada eksekusi lebih lanjut
+    st.stop() 
 
 # Ambil SHEET_ID
 try:
@@ -72,19 +76,21 @@ st.title("📊 Monitoring Air")
 # FUNGSI UTAMA 
 # ----------------------------
 
+@st.cache_data(show_spinner=False) 
 def get_worksheet_name(lokasi):
     """Mengecek nama worksheet. Menambahkan penanganan spasi jika ada."""
-    # Mengatasi potensi perbedaan spasi pada nama sheet
     try:
-        ws_titles = [ws.title for ws in client.open_by_key(SHEET_ID).worksheets()]
-        if lokasi == "WTP" and "WTP " in ws_titles:
-            return "WTP "  # Jika sheet asli memiliki spasi di akhir
+        # Pengecekan spasi di akhir nama sheet hanya untuk kasus 'WTP '
+        if lokasi == "WTP":
+            ws_titles = [ws.title for ws in client.open_by_key(SHEET_ID).worksheets()]
+            if "WTP " in ws_titles:
+                return "WTP "  # Jika sheet asli memiliki spasi di akhir
         return lokasi
     except Exception:
         # Fallback jika gagal membuka spreadsheet
         return lokasi 
 
-@st.cache_data(ttl=60) # Cache data selama 60 detik untuk performa
+@st.cache_data(ttl=60) 
 def simpan_data_ke_sheet(lokasi, hari, pH, suhu, debit):
     """Menyimpan data ke worksheet (Baris 3, 4, 5)"""
     try:
@@ -96,7 +102,7 @@ def simpan_data_ke_sheet(lokasi, hari, pH, suhu, debit):
         
         # MAPPING BARIS SESUAI STRUKTUR SPREADSHEET (Baris 3=pH, Baris 4=suhu, Baris 5=debit)
         mapping = {
-            "pH": 3,     # Baris 3
+            "pH": 3,      # Baris 3
             "suhu": 4,    # Baris 4
             "debit": 5    # Baris 5
         }
@@ -109,7 +115,6 @@ def simpan_data_ke_sheet(lokasi, hari, pH, suhu, debit):
         worksheet.update_cell(mapping["suhu"], kolom, suhu)
         worksheet.update_cell(mapping["debit"], kolom, debit)
         
-        st.success(f"✅ Data berhasil disimpan/diperbarui di {lokasi} (Hari {hari})!")
         return True
         
     except Exception as e:
@@ -137,7 +142,7 @@ def hapus_data_satu_bulan(lokasi):
         return False
 
 
-@st.cache_data(ttl=60) # Cache data selama 60 detik
+@st.cache_data(ttl=60) 
 def baca_data_dari_sheet(lokasi):
     """Membaca data dari worksheet (Range B3:AF5)"""
     try:
@@ -204,6 +209,8 @@ def baca_data_dari_sheet(lokasi):
     except Exception as e:
         st.error(f"❌ Gagal membaca data dari {lokasi}. Periksa Izin Berbagi Sheet. Error: {e}")
         return pd.DataFrame()
+    
+# FUNGSI to_excel DIHAPUS, DIGANTIKAN DENGAN to_csv
 
 # ==================== APLIKASI UTAMA ====================
 
@@ -218,6 +225,8 @@ selected_lokasi = st.sidebar.selectbox(
 # Inisialisasi session state untuk konfirmasi hapus data
 if 'confirm_clear_data_monthly' not in st.session_state:
     st.session_state['confirm_clear_data_monthly'] = False
+if 'last_selected_lokasi' not in st.session_state:
+    st.session_state['last_selected_lokasi'] = selected_lokasi
 
 # Muat data existing (dengan cache)
 current_df = baca_data_dari_sheet(selected_lokasi)
@@ -283,8 +292,6 @@ with st.form("input_form"):
         
     submitted = st.form_submit_button("💾 Simpan Data ke Google Sheets", type="primary")
     
-    # Tombol Hapus Manual Harian dihilangkan
-
     if submitted:
         # Periksa semua kolom apakah kosong (0.0 bisa jadi nilai valid)
         if input_ph is None or input_suhu is None or input_debit is None:
@@ -323,53 +330,115 @@ if not current_df.empty:
 else:
     st.info("Belum ada data untuk lokasi ini.")
 
-# --- Bagian 3: Arsipkan Data Bulan Ini ---
+# --- Bagian 3: Visualisasi Data (Altair) ---
 st.markdown("---")
-st.header("📦 Arsipkan Data Bulan Ini")
-st.info("Setelah data bulanan Anda **diarsipkan secara manual** (diunduh langsung dari Google Sheet), gunakan tombol di bawah untuk mengosongkan data dari Spreadsheet, siap untuk bulan berikutnya.")
+st.header("📈 Tren Data Bulanan")
+
+if not current_df.empty and current_df['pH'].notna().any():
+    # Mengubah format data dari wide ke long untuk Altair
+    df_melted = current_df.melt(
+        id_vars=['Hari', 'Tanggal'],
+        value_vars=['pH', 'Suhu (°C)', 'Debit (l/d)'],
+        var_name='Parameter',
+        value_name='Nilai'
+    ).dropna(subset=['Nilai'])
+    
+    # Konversi Hari menjadi string kategori untuk sumbu X agar tidak ada gap di grafik
+    df_melted['Hari_str'] = df_melted['Hari'].astype(str)
+    
+    # Buat Chart interaktif
+    chart = alt.Chart(df_melted).mark_line(point=True).encode(
+        # Sumbu X: Hari (sebagai string)
+        x=alt.X('Hari_str', title='Hari ke-', sort=list(map(str, range(1, 32)))),
+        # Sumbu Y: Nilai
+        y=alt.Y('Nilai', title='Nilai Parameter'),
+        # Warna: Berdasarkan Parameter
+        color=alt.Color('Parameter', title='Parameter'),
+        # Tooltip
+        tooltip=['Tanggal', 'Parameter', 'Nilai']
+    ).properties(
+        #title=f"Tren pH, Suhu, dan Debit untuk {selected_lokasi}" # Judul dipindah ke atas
+    ).interactive() # Zoom dan pan
+    
+    # Pisahkan chart per parameter (Faceted Chart)
+    chart_faceted = chart.facet(
+        column=alt.Column('Parameter', header=alt.Header(titleOrient="bottom", labelOrient="bottom")),
+        columns=3 # Tampilkan 3 kolom
+    ).resolve_scale(
+        y='independent' # Skala Y yang independen untuk setiap parameter
+    )
+    
+    st.altair_chart(chart_faceted, use_container_width=True)
+
+else:
+    st.info("Tidak cukup data (pH, Suhu, atau Debit) untuk menampilkan tren bulan ini.")
+
+
+# --- Bagian 4: Arsipkan & Hapus Data Bulan Ini ---
+st.markdown("---")
+st.header("📦 Arsipkan & Kosongkan Data Bulanan")
+st.info("Setelah data bulanan Anda **diarsip dan diunduh** menggunakan tombol di bawah, gunakan tombol HAPUS untuk mengosongkan data dari Spreadsheet, siap untuk bulan berikutnya.")
+
+# Kontainer untuk tombol Download & Hapus
+col_download, col_clear = st.columns([1, 1.5])
 
 if not current_df.empty:
     
-    # Logika tombol hapus dengan konfirmasi 2 langkah
-    
-    # Cek apakah konfirmasi sedang aktif
-    is_confirming = st.session_state.get('confirm_clear_data_monthly', False)
+    # Tombol Download (di Bagian 4 agar dekat dengan Clear)
+    with col_download:
+        # FUNGSI DOWNLOAD (CSV) SUDAH DITAMBAHKAN DI SINI
+        csv_data = current_df[['Tanggal', 'pH', 'Suhu (°C)', 'Debit (l/d)']].to_csv(index=False).encode('utf-8')
+        st.download_button(
+            label="⬇️ Unduh Data (CSV)", # Label tombol download
+            data=csv_data,
+            file_name=f"{selected_lokasi}_MonitoringAir_{today_date.strftime('%Y%m')}.csv", # Nama file
+            mime="text/csv", # MIME type untuk CSV
+            type="primary",
+            use_container_width=True
+        )
 
-    if st.button(
-        f"🗑️ HAPUS SELURUH DATA {selected_lokasi} (Bulan Ini)",
-        # Ganti warna tombol saat mode konfirmasi
-        type="secondary" if not is_confirming else "primary",
-        use_container_width=True # Membuat tombol penuh lebar
-    ):
-        if is_confirming:
-            # LANGKAH 2: Konfirmasi penghapusan
-            with st.spinner("Menghapus seluruh data bulan ini..."):
-                clear_success = hapus_data_satu_bulan(selected_lokasi)
-                
-                if clear_success:
-                    st.session_state['confirm_clear_data_monthly'] = False # Reset confirmation
-                    st.success(f"✅ Seluruh data {selected_lokasi} untuk bulan ini berhasil dikosongkan dari Google Sheets.")
-                    st.cache_data.clear()
-                    time.sleep(1.5)
-                    st.rerun()
-                # Jika gagal, fungsi hapus sudah menampilkan error
+    # Logika tombol hapus dengan konfirmasi 2 langkah
+    with col_clear:
+        # Cek apakah konfirmasi sedang aktif
+        is_confirming = st.session_state.get('confirm_clear_data_monthly', False)
+
+        if st.button(
+            f"🗑️ KOSONGKAN SELURUH DATA",
+            # Ganti warna tombol saat mode konfirmasi
+            type="secondary" if not is_confirming else "primary",
+            key="clear_monthly_data_btn",
+            use_container_width=True # Membuat tombol penuh lebar
+        ):
+            if is_confirming:
+                # LANGKAH 2: Konfirmasi penghapusan
+                with st.spinner("Menghapus seluruh data bulan ini..."):
+                    clear_success = hapus_data_satu_bulan(selected_lokasi)
                     
-        else:
-            # LANGKAH 1: Meminta konfirmasi
-            st.session_state['confirm_clear_data_monthly'] = True
-            st.warning("❗ Anda yakin ingin menghapus **SEMUA** data bulan ini? Pastikan Anda **sudah mengarsipkannya secara manual** (mengunduh dari Google Sheet). Klik tombol **sekali lagi** untuk konfirmasi penghapusan.")
+                    if clear_success:
+                        st.session_state['confirm_clear_data_monthly'] = False # Reset confirmation
+                        st.success(f"✅ Seluruh data {selected_lokasi} untuk bulan ini berhasil dikosongkan dari Google Sheets.")
+                        st.cache_data.clear()
+                        time.sleep(1.5)
+                        st.rerun()
+                        
+            else:
+                # LANGKAH 1: Meminta konfirmasi
+                st.session_state['confirm_clear_data_monthly'] = True
+                st.warning("❗ Anda yakin ingin menghapus **SEMUA** data bulan ini? Pastikan Anda **sudah mengarsipkannya**. Klik tombol **sekali lagi** untuk konfirmasi penghapusan.")
+                st.rerun()
+                
+        # Tampilkan pesan konfirmasi jika aktif
+        if is_confirming:
+            st.warning("Menunggu konfirmasi klik kedua untuk menghapus...")
             
-        # Rerun untuk menampilkan/menghapus pesan konfirmasi
-        st.rerun()
-    
-    # Reset konfirmasi jika pengguna mengganti lokasi saat konfirmasi aktif
-    if selected_lokasi != st.session_state.get('last_selected_lokasi'):
-        st.session_state['confirm_clear_data_monthly'] = False
-    st.session_state['last_selected_lokasi'] = selected_lokasi
+        # Reset konfirmasi jika pengguna mengganti lokasi saat konfirmasi aktif
+        if selected_lokasi != st.session_state.get('last_selected_lokasi'):
+            st.session_state['confirm_clear_data_monthly'] = False
+        st.session_state['last_selected_lokasi'] = selected_lokasi
 
 else:
     # Kasus jika current_df kosong (belum ada data)
-    st.info("Tidak ada data untuk dihapus.")
+    st.info("Tidak ada data untuk diarsip atau dihapus.")
 
 
 st.caption("Aplikasi Monitoring Air | Pastikan akun layanan memiliki akses Edit.")
