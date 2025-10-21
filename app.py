@@ -426,7 +426,8 @@ if not current_df.empty:
         raw_df_for_download = baca_data_raw_sheet_untuk_unduh(selected_lokasi)
         
         # Konversi DataFrame mentah ke CSV. Index=True agar label parameter (pH, Suhu, Debit) ikut terunduh.
-        csv_data = raw_df_for_download.to_csv(index=True).encode('utf-8')
+        # Diberi separator (sep=';') untuk kompatibilitas yang lebih baik dengan Excel di region Indonesia. <-- PERUBAHAN INI
+        csv_data = raw_df_for_download.to_csv(index=True, sep=';').encode('utf-8')
 
         st.download_button(
             label="⬇️ Unduh Data (CSV)", # Label tombol download
