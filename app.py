@@ -330,50 +330,6 @@ if not current_df.empty:
 else:
     st.info("Belum ada data untuk lokasi ini.")
 
-# --- Bagian 3: Visualisasi Data (Altair) ---
-st.markdown("---")
-st.header("📈 Tren Data Bulanan")
-
-if not current_df.empty and current_df['pH'].notna().any():
-    # Mengubah format data dari wide ke long untuk Altair
-    df_melted = current_df.melt(
-        id_vars=['Hari', 'Tanggal'],
-        value_vars=['pH', 'Suhu (°C)', 'Debit (l/d)'],
-        var_name='Parameter',
-        value_name='Nilai'
-    ).dropna(subset=['Nilai'])
-    
-    # Konversi Hari menjadi string kategori untuk sumbu X agar tidak ada gap di grafik
-    df_melted['Hari_str'] = df_melted['Hari'].astype(str)
-    
-    # Buat Chart interaktif
-    chart = alt.Chart(df_melted).mark_line(point=True).encode(
-        # Sumbu X: Hari (sebagai string)
-        x=alt.X('Hari_str', title='Hari ke-', sort=list(map(str, range(1, 32)))),
-        # Sumbu Y: Nilai
-        y=alt.Y('Nilai', title='Nilai Parameter'),
-        # Warna: Berdasarkan Parameter
-        color=alt.Color('Parameter', title='Parameter'),
-        # Tooltip
-        tooltip=['Tanggal', 'Parameter', 'Nilai']
-    ).properties(
-        #title=f"Tren pH, Suhu, dan Debit untuk {selected_lokasi}" # Judul dipindah ke atas
-    ).interactive() # Zoom dan pan
-    
-    # Pisahkan chart per parameter (Faceted Chart)
-    chart_faceted = chart.facet(
-        column=alt.Column('Parameter', header=alt.Header(titleOrient="bottom", labelOrient="bottom")),
-        columns=3 # Tampilkan 3 kolom
-    ).resolve_scale(
-        y='independent' # Skala Y yang independen untuk setiap parameter
-    )
-    
-    st.altair_chart(chart_faceted, use_container_width=True)
-
-else:
-    st.info("Tidak cukup data (pH, Suhu, atau Debit) untuk menampilkan tren bulan ini.")
-
-
 # --- Bagian 4: Arsipkan & Hapus Data Bulan Ini ---
 st.markdown("---")
 st.header("📦 Arsipkan & Kosongkan Data Bulanan")
@@ -442,3 +398,4 @@ else:
 
 
 st.caption("Aplikasi Monitoring Air | Pastikan akun layanan memiliki akses Edit.")
+
