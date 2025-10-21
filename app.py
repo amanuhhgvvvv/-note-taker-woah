@@ -210,7 +210,7 @@ def baca_data_dari_sheet(lokasi):
         st.error(f"❌ Gagal membaca data dari {lokasi}. Periksa Izin Berbagi Sheet. Error: {e}")
         return pd.DataFrame()
 
-# FUNGSI BARU UNTUK MENGUNDUH DATA MENTAH DENGAN STRUKTUR SPREADSHEET
+# FUNGSI UNTUK MENGUNDUH DATA MENTAH DENGAN STRUKTUR SPREADSHEET
 def baca_data_raw_sheet_untuk_unduh(lokasi):
     """
     Membaca data MENTAH dari Google Sheet (Range A2:AF5) 
@@ -227,8 +227,12 @@ def baca_data_raw_sheet_untuk_unduh(lokasi):
         if not data or len(data) < 2:
             return pd.DataFrame() 
 
-        # Baris pertama (data[0]) adalah header kolom: ['Kosong/Label', '1', '2', ..., '31']
-        cols = [val if val else 'Parameter' for val in data[0]] 
+        # Baris pertama (data[0]) adalah header kolom: ['A2', 'B2', ..., 'AF2']
+        cols = data[0].copy()
+        
+        # Jika sel A2 (index 0) kosong di Sheet, kita paksa beri nama 'Parameter'
+        if not cols or not cols[0]:
+            cols[0] = 'Parameter' 
         
         # Sisa baris adalah data: [['pH', 7.0, 7.1, ...], ['Suhu', 25, 26, ...], ...]
         raw_rows = data[1:] 
@@ -236,17 +240,51 @@ def baca_data_raw_sheet_untuk_unduh(lokasi):
         # Buat DataFrame
         df_raw = pd.DataFrame(raw_rows, columns=cols)
         
-        # Atur kolom pertama (Kolom A: Parameter) sebagai index baris
+        # Atur kolom pertama ('Parameter') sebagai index baris
         df_raw = df_raw.set_index(df_raw.columns[0])
-        df_raw.index.name = None # Hapus nama index (agar terlihat seperti di Sheet)
+        # df_raw.index.name = None # Hapus nama index (agar terlihat seperti di Sheet)
         
         return df_raw
         
     except Exception as e:
         # st.error(f"❌ Gagal membaca data mentah untuk unduhan. Error: {e}") # Tidak perlu ditampilkan
         return pd.DataFrame()
+
+# FUNGSI BARU: Menggabungkan data dari semua lokasi ke dalam satu DataFrame
+def baca_semua_data_untuk_unduh():
+    """Mengambil dan menggabungkan data mentah dari semua lokasi ke dalam satu DataFrame."""
+    all_data = []
     
-# FUNGSI to_excel DIHAPUS, DIGANTIKAN DENGAN to_csv
+    # Ambil tanggal hari ini untuk label arsip
+    today_date = datetime.date.today()
+    
+    for lokasi in SHEET_NAMES:
+        try:
+            # Menggunakan fungsi pembaca data mentah
+            df_lokasi = baca_data_raw_sheet_untuk_unduh(lokasi)
+            
+            if not df_lokasi.empty:
+                # Tambahkan kolom identitas Lokasi di depan
+                df_lokasi.insert(0, 'Lokasi', lokasi)
+                df_lokasi.insert(1, 'Bulan/Tahun', today_date.strftime('%Y-%m'))
+                
+                all_data.append(df_lokasi)
+        except Exception as e:
+            # Lanjutkan ke sheet berikutnya jika ada error
+            print(f"Gagal membaca data dari lokasi {lokasi}: {e}") 
+            continue
+            
+    if all_data:
+        # Menggabungkan semua DataFrame
+        df_gabungan = pd.concat(all_data)
+        
+        # Ubah index menjadi kolom 'Parameter' sebelum unduh
+        df_gabungan = df_gabungan.reset_index().rename(columns={'index': 'Parameter'})
+        
+        return df_gabungan
+    else:
+        return pd.DataFrame()
+
 
 # ==================== APLIKASI UTAMA ====================
 
@@ -418,33 +456,37 @@ st.info("Setelah data bulanan Anda **diarsip dan diunduh** menggunakan tombol di
 # Kontainer untuk tombol Download & Hapus
 col_download, col_clear = st.columns([1, 1.5])
 
-if not current_df.empty:
+# Tombol Unduh Global (Semua Lokasi)
+with col_download:
+    # Ambil data dari semua lokasi dan gabungkan
+    df_all_data = baca_semua_data_untuk_unduh()
     
-    # Tombol Download (di Bagian 4 agar dekat dengan Clear)
-    with col_download:
-        # Ambil data mentah dengan struktur yang sama seperti di Google Sheets (Baris=Parameter, Kolom=Hari)
-        raw_df_for_download = baca_data_raw_sheet_untuk_unduh(selected_lokasi)
-        
-        # Konversi DataFrame mentah ke CSV. Index=True agar label parameter (pH, Suhu, Debit) ikut terunduh.
-        # Diberi separator (sep=';') untuk kompatibilitas yang lebih baik dengan Excel di region Indonesia. <-- PERUBAHAN INI
-        csv_data = raw_df_for_download.to_csv(index=True, sep=';').encode('utf-8')
+    if not df_all_data.empty:
+        # Konversi DataFrame gabungan ke CSV. Index=False karena index sudah diubah jadi kolom 'Parameter'.
+        # Diberi separator (sep=';') untuk kompatibilitas yang lebih baik dengan Excel di region Indonesia.
+        csv_data_all = df_all_data.to_csv(index=False, sep=';').encode('utf-8')
 
         st.download_button(
-            label="⬇️ Unduh Data (CSV)", # Label tombol download
-            data=csv_data,
-            file_name=f"{selected_lokasi}_MonitoringAir_RawData_{today_date.strftime('%Y%m')}.csv", # Nama file
-            mime="text/csv", # MIME type untuk CSV
+            label="⬇️ Unduh Semua Lokasi (CSV)", 
+            data=csv_data_all,
+            file_name=f"MonitoringAir_SEMUA_LOKASI_{today_date.strftime('%Y%m')}.csv", 
+            mime="text/csv", 
             type="primary",
             use_container_width=True
         )
+        st.caption("Mengunduh data mentah dari semua sheet sekaligus.")
+    else:
+        st.warning("Tidak ada data dari semua lokasi untuk diunduh.")
 
-    # Logika tombol hapus dengan konfirmasi 2 langkah
-    with col_clear:
+
+# Logika tombol hapus dengan konfirmasi 2 langkah (Hanya untuk lokasi yang dipilih)
+with col_clear:
+    if not current_df.empty:
         # Cek apakah konfirmasi sedang aktif
         is_confirming = st.session_state.get('confirm_clear_data_monthly', False)
 
         if st.button(
-            f"🗑️ KOSONGKAN SELURUH DATA",
+            f"🗑️ KOSONGKAN DATA {selected_lokasi}",
             # Ganti warna tombol saat mode konfirmasi
             type="secondary" if not is_confirming else "primary",
             key="clear_monthly_data_btn",
@@ -452,7 +494,7 @@ if not current_df.empty:
         ):
             if is_confirming:
                 # LANGKAH 2: Konfirmasi penghapusan
-                with st.spinner("Menghapus seluruh data bulan ini..."):
+                with st.spinner(f"Menghapus seluruh data bulan ini dari {selected_lokasi}..."):
                     clear_success = hapus_data_satu_bulan(selected_lokasi)
                     
                     if clear_success:
@@ -465,7 +507,7 @@ if not current_df.empty:
             else:
                 # LANGKAH 1: Meminta konfirmasi
                 st.session_state['confirm_clear_data_monthly'] = True
-                st.warning("❗ Anda yakin ingin menghapus **SEMUA** data bulan ini? Pastikan Anda **sudah mengarsipkannya**. Klik tombol **sekali lagi** untuk konfirmasi penghapusan.")
+                st.warning(f"❗ Anda yakin ingin menghapus **SEMUA** data bulanan **{selected_lokasi}**? Pastikan Anda **sudah mengarsipkannya**. Klik tombol **sekali lagi** untuk konfirmasi penghapusan.")
                 st.rerun()
                 
         # Tampilkan pesan konfirmasi jika aktif
@@ -477,9 +519,8 @@ if not current_df.empty:
             st.session_state['confirm_clear_data_monthly'] = False
         st.session_state['last_selected_lokasi'] = selected_lokasi
 
-else:
-    # Kasus jika current_df kosong (belum ada data)
-    st.info("Tidak ada data untuk diarsip atau dihapus.")
+    else:
+        st.info("Tidak ada data untuk dihapus di lokasi ini.")
 
 
 st.caption("Aplikasi Monitoring Air | Pastikan akun layanan memiliki akses Edit.")
