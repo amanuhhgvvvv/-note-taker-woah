@@ -78,7 +78,7 @@ def get_worksheet_name(lokasi):
     try:
         ws_titles = [ws.title for ws in client.open_by_key(SHEET_ID).worksheets()]
         if lokasi == "WTP" and "WTP " in ws_titles:
-            return "WTP "  # Jika sheet asli memiliki spasi di akhir
+            return "WTP " # Jika sheet asli memiliki spasi di akhir
         return lokasi
     except Exception:
         # Fallback jika gagal membuka spreadsheet
@@ -96,7 +96,7 @@ def simpan_data_ke_sheet(lokasi, hari, pH, suhu, debit):
         
         # MAPPING BARIS SESUAI STRUKTUR SPREADSHEET (Baris 3=pH, Baris 4=suhu, Baris 5=debit)
         mapping = {
-            "pH": 3,     # Baris 3
+            "pH": 3,      # Baris 3
             "suhu": 4,    # Baris 4
             "debit": 5    # Baris 5
         }
@@ -254,7 +254,8 @@ with st.form("input_form"):
     
     with col1:
         # Menangani nilai NaN agar number_input tidak error
-        ph_value = existing_data['pH'] if existing_data is not None and pd.notna(existing_data['pH']) else 7.0
+        # PERUBAHAN: Default diubah dari 7.0 menjadi 0.0
+        ph_value = existing_data['pH'] if existing_data is not None and pd.notna(existing_data['pH']) else 0.0
         input_ph = st.number_input(
             "Nilai pH", 
             min_value=0.0, max_value=14.0, 
@@ -263,7 +264,8 @@ with st.form("input_form"):
             format="%.1f"
         )
     with col2:
-        suhu_value = existing_data['Suhu (°C)'] if existing_data is not None and pd.notna(existing_data['Suhu (°C)']) else 29.0
+        # PERUBAHAN: Default diubah dari 29.0 menjadi 0.0
+        suhu_value = existing_data['Suhu (°C)'] if existing_data is not None and pd.notna(existing_data['Suhu (°C)']) else 0.0
         input_suhu = st.number_input(
             "Suhu (°C)", 
             min_value=0.0, max_value=100.0, 
@@ -272,7 +274,8 @@ with st.form("input_form"):
             format="%.1f"
         )
     with col3:
-        debit_value = existing_data['Debit (l/d)'] if existing_data is not None and pd.notna(existing_data['Debit (l/d)']) else 75.0
+        # PERUBAHAN: Default diubah dari 75.0 menjadi 0.0
+        debit_value = existing_data['Debit (l/d)'] if existing_data is not None and pd.notna(existing_data['Debit (l/d)']) else 0.0
         input_debit = st.number_input(
             "Debit (l/d)", 
             min_value=0.0,
