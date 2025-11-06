@@ -254,7 +254,7 @@ with st.form("input_form"):
     
     with col1:
         # Menangani nilai NaN agar number_input tidak error
-        # PERUBAHAN: Default diubah dari 7.0 menjadi 0.0
+        # PERUBAHAN YANG DIPERINTAHKAN SEBELUMNYA: Default 0.0
         ph_value = existing_data['pH'] if existing_data is not None and pd.notna(existing_data['pH']) else 0.0
         input_ph = st.number_input(
             "Nilai pH", 
@@ -264,7 +264,7 @@ with st.form("input_form"):
             format="%.1f"
         )
     with col2:
-        # PERUBAHAN: Default diubah dari 29.0 menjadi 0.0
+        # PERUBAHAN YANG DIPERINTAHKAN SEBELUMNYA: Default 0.0
         suhu_value = existing_data['Suhu (°C)'] if existing_data is not None and pd.notna(existing_data['Suhu (°C)']) else 0.0
         input_suhu = st.number_input(
             "Suhu (°C)", 
@@ -274,7 +274,7 @@ with st.form("input_form"):
             format="%.1f"
         )
     with col3:
-        # PERUBAHAN: Default diubah dari 75.0 menjadi 0.0
+        # PERUBAHAN YANG DIPERINTAHKAN SEBELUMNYA: Default 0.0
         debit_value = existing_data['Debit (l/d)'] if existing_data is not None and pd.notna(existing_data['Debit (l/d)']) else 0.0
         input_debit = st.number_input(
             "Debit (l/d)", 
@@ -299,7 +299,8 @@ with st.form("input_form"):
                 # Hanya me-rerun jika berhasil disimpan
                 if success_save:
                     st.cache_data.clear()
-                    time.sleep(1.5)
+                    # PENAMBAHAN DELAY 2 DETIK UNTUK MENGATASI ISU LATENSI GOOGLE SHEETS
+                    time.sleep(2) 
                     st.rerun()
 
 # --- Bagian 2: Tampilkan Data Existing ---
