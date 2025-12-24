@@ -377,5 +377,5 @@ else:
 
 
 st.caption("Aplikasi Monitoring Air | Pastikan akun layanan memiliki akses Edit.")
-st.ballons()
+
 
